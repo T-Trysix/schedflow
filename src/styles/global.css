@@ -1,0 +1,304 @@
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  /* 悬浮球透明窗口：确保页面自身不涂底色 */
+  background: transparent;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Tailwind 未引入 preflight：原生 <button> 会保留浏览器默认的外凸边框（按钮周围的黑线）与焦点环，需手动重置。
+   antd 按钮均带 .ant-btn 类，特异性更高，不受影响。 */
+button {
+  border: 0;
+  background: none;
+  outline: none;
+}
+button:focus-visible {
+  outline: 2px solid var(--sf-today-ring);
+  outline-offset: 1px;
+}
+
+/* ---- 主题 CSS 变量（浅色默认，深色由 [data-theme="dark"] 覆盖） ---- */
+:root {
+  --sf-bg: #f5f6fa;
+  --sf-bg-panel: #ffffff;
+  --sf-text: #1f2329;
+  --sf-text-secondary: #6b7280;
+  --sf-border: #e5e7eb;
+  --sf-hover: rgba(0, 0, 0, 0.04);
+  --sf-today-ring: #1677ff;
+  --sf-weekend: #f0f1f5;
+  --sf-glass: rgba(255, 255, 255, 0.72);
+}
+
+[data-theme="dark"] {
+  --sf-bg: #141414;
+  --sf-bg-panel: #1f1f1f;
+  --sf-text: #e5e7eb;
+  --sf-text-secondary: #9ca3af;
+  --sf-border: #303030;
+  --sf-hover: rgba(255, 255, 255, 0.06);
+  --sf-weekend: #1a1a1a;
+  --sf-glass: rgba(30, 30, 30, 0.72);
+}
+
+/* ---- 滚动条 ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(127, 127, 127, 0.4);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- 通用动效 ---- */
+.sf-fade {
+  animation: sf-fade 0.2s ease;
+}
+@keyframes sf-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sf-slide-up {
+  animation: sf-slide-up 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes sf-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- 日历网格 ---- */
+.sf-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 1px;
+  background: var(--sf-border);
+  border: 1px solid var(--sf-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.sf-cal-cell {
+  position: relative;
+  background: var(--sf-bg-panel);
+  min-height: 0;
+  overflow: hidden;
+  cursor: default;
+  transition: background 0.15s ease;
+}
+.sf-cal-cell:hover {
+  background: var(--sf-hover);
+}
+.sf-cal-cell.outside {
+  background: color-mix(in srgb, var(--sf-bg-panel) 55%, transparent);
+}
+.sf-cal-cell.weekend {
+  background: var(--sf-weekend);
+}
+/* 选中的日期格变蓝（蓝色框 + 浅蓝底）；今天不再整格常蓝，只在日期数字上用描边提示 */
+.sf-cal-cell.selected {
+  box-shadow: inset 0 0 0 2px var(--sf-today-ring);
+  background: color-mix(in srgb, var(--sf-today-ring) 10%, var(--sf-bg-panel));
+}
+.sf-cal-cell.drag-over {
+  background: color-mix(in srgb, var(--sf-today-ring) 14%, var(--sf-bg-panel));
+  box-shadow: inset 0 0 0 2px var(--sf-today-ring);
+}
+
+.sf-cal-daynum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  margin: 6px 6px 2px 6px;
+  color: var(--sf-text);
+}
+.sf-cal-daynum.today-num {
+  border: 1.5px solid var(--sf-today-ring);
+  color: var(--sf-today-ring);
+  font-weight: 600;
+}
+
+/* 日程条目 */
+.sf-ev {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 1px 4px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 18px;
+  height: 20px;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--sf-text);
+}
+.sf-ev:hover {
+  filter: brightness(0.96);
+}
+.sf-ev.completed .sf-ev-title {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+.sf-ev-bar {
+  flex: none;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+/* 手机样式（日程模式） */
+.sf-phone {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--sf-bg-panel);
+}
+
+/* 悬浮球 */
+.sf-float-ball {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+  background: linear-gradient(135deg, #1677ff, #6366f1);
+  /* 用 drop-shadow 跟随圆形轮廓：避免透明窗口下 box-shadow 被渲染成正方形阴影 */
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0));
+  color: #fff;
+}
+.sf-float-ball:hover {
+  transform: scale(1.04);
+}
+
+/* 停靠态：悬停展开/收起时 left/top 平滑滑动（不改窗口尺寸，无 IPC 抖动） */
+.sf-float-ball.sf-docked {
+  transition: left 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.2s ease, filter 0.2s ease;
+}
+
+/* 面板内的迷你锚点球：面板打开时悬浮球以锚点形态保留，点击收起 */
+.sf-float-anchor {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: linear-gradient(135deg, #1677ff, #6366f1);
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.28));
+  color: #fff;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.sf-float-anchor:hover {
+  transform: scale(1.06);
+}
+
+/* 悬浮球右键菜单容器（窗口内绘制） */
+.sf-float-menu {
+  position: absolute;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0);
+  background: rgba(28, 28, 30);
+  backdrop-filter: blur(12px);
+}
+.sf-float-menu .ant-menu {
+  background: transparent !important;
+  border-inline-end: none !important;
+}
+
+/* 提醒气泡 */
+.sf-bubble {
+  position: absolute;
+  right: 74px;
+  top: 4px;
+  width: 240px;
+  background: var(--sf-glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--sf-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  z-index: 50;
+  padding: 10px 12px;
+}
+[data-theme="dark"] .sf-bubble {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+/* 提醒角标 */
+.sf-float-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 10px;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 600;
+  box-shadow: 0 0 0 2px var(--sf-bg-panel);
+  animation: sf-fade 0.2s ease;
+}
+
+/* 悬浮球快捷面板 */
+.sf-float-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--sf-glass);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--sf-border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+}
+[data-theme="dark"] .sf-float-panel {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}

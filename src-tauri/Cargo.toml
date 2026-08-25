@@ -1,0 +1,36 @@
+[package]
+name = "schedflow"
+version = "0.1.0"
+description = "日程通 - Windows 桌面日程管理软件"
+authors = ["schedflow"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "schedflow_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = "0.4"
+log = "0.4"
+env_logger = "0.11"
+window-vibrancy = "0.6"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

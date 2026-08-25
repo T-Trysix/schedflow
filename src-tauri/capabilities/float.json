@@ -1,0 +1,16 @@
+{
+  "identifier": "float-capability",
+  "description": "悬浮球窗口能力",
+  "windows": ["float"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-focus",
+    "core:event:default",
+    "notification:default"
+  ]
+}
