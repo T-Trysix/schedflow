@@ -285,15 +285,14 @@ button:focus-visible {
   animation: sf-fade 0.2s ease;
 }
 
-/* 悬浮球快捷面板 */
+/* 悬浮球快捷面板：不透明实底，避免透明窗口下桌面内容透出干扰阅读 */
 .sf-float-panel {
   position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--sf-glass);
-  backdrop-filter: blur(14px);
+  background: var(--sf-bg-panel);
   border: 1px solid var(--sf-border);
   border-radius: 16px;
   overflow: hidden;

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Empty, Input, Select, Tag } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button, Empty, Input, Tag } from "antd";
 import { CalendarOutlined, CheckSquareOutlined, SearchOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/stores/appStore";
 import { useDataStore } from "@/stores/dataStore";
-import { useFilterStore } from "@/stores/filterStore";
+import { matchesFilter, useFilterStore } from "@/stores/filterStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { Event, Todo } from "@/lib/types";
 
@@ -50,7 +50,15 @@ export default function SearchPanel() {
   const catOf = (id: number | null) => categories.find((c) => c.id === id);
   const tagNames = (ids: number[]) => ids.map((id) => tags.find((t) => t.id === id)?.name).filter(Boolean);
 
-  const total = results.events.length + results.todos.length;
+  // 搜索结果统一按全局筛选（分类/优先级/状态）在前端过滤，与列表视图语义一致
+  const filteredResults = useMemo(() => {
+    return {
+      events: results.events.filter((e) => matchesFilter(e, filter)),
+      todos: results.todos.filter((t) => matchesFilter(t, filter)),
+    };
+  }, [results, filter]);
+
+  const total = filteredResults.events.length + filteredResults.todos.length;
 
   const jumpToEvent = (e: Event) => {
     const d = dayjs(e.startDate);
@@ -75,19 +83,6 @@ export default function SearchPanel() {
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{ width: 320, fontSize: 13 }}
         />
-        <Select
-          allowClear
-          placeholder="按分类筛选"
-          style={{ width: 140, fontSize: 13 }}
-          value={filter.categoryId ?? undefined}
-          onChange={(v) => filter.set({ categoryId: v ?? null })}
-        >
-          {categories.map((c) => (
-            <Select.Option key={c.id} value={c.id}>
-              {c.name}
-            </Select.Option>
-          ))}
-        </Select>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-3">
@@ -104,13 +99,13 @@ export default function SearchPanel() {
               {activeCat ? ` · 分类：${activeCat}` : ""}
             </div>
 
-            {results.events.length > 0 && (
+            {filteredResults.events.length > 0 && (
               <>
                 <div className="text-[13px] font-semibold text-[var(--sf-text)] mb-1.5 flex items-center gap-1.5">
                   <CalendarOutlined style={{ color: "var(--sf-today-ring)" }} /> 日程
                 </div>
                 <div className="space-y-1 mb-4">
-                  {results.events.map((e) => (
+                  {filteredResults.events.map((e) => (
                     <div
                       key={e.id}
                       className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-[var(--sf-border)] hover:border-[var(--sf-today-ring)] bg-[var(--sf-bg-panel)] cursor-pointer transition-colors"
@@ -133,13 +128,13 @@ export default function SearchPanel() {
               </>
             )}
 
-            {results.todos.length > 0 && (
+            {filteredResults.todos.length > 0 && (
               <>
                 <div className="text-[13px] font-semibold text-[var(--sf-text)] mb-1.5 flex items-center gap-1.5">
                   <CheckSquareOutlined style={{ color: "var(--sf-today-ring)" }} /> 待办
                 </div>
                 <div className="space-y-1">
-                  {results.todos.map((t) => (
+                  {filteredResults.todos.map((t) => (
                     <div
                       key={t.id}
                       className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-[var(--sf-border)] hover:border-[var(--sf-today-ring)] bg-[var(--sf-bg-panel)] cursor-pointer transition-colors"
@@ -162,7 +157,21 @@ export default function SearchPanel() {
             )}
 
             {total === 0 && !loading && (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`没有找到与 “${query}” 相关的内容`} style={{ marginTop: 40 }} />
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  filter.categoryId !== null
+                    ? `当前分类「${activeCat}」下没有匹配「${query}」的结果`
+                    : `没有找到与 "${query}" 相关的内容`
+                }
+                style={{ marginTop: 40 }}
+              >
+                {filter.categoryId !== null && (
+                  <Button size="small" onClick={() => filter.set({ categoryId: null })}>
+                    查看全部
+                  </Button>
+                )}
+              </Empty>
             )}
           </>
         )}

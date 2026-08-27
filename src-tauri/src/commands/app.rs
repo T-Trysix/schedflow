@@ -1,5 +1,4 @@
 use tauri::{AppHandle, Manager};
-use tauri_plugin_autostart::ManagerExt;
 
 use crate::DbState;
 
@@ -74,36 +73,6 @@ pub fn hide_float(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn exit_app(app: AppHandle) {
     app.exit(0);
-}
-
-/// 设置开机自启（并同步本地设置项）。
-#[tauri::command]
-pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
-    let result = if enabled {
-        app.autolaunch().enable()
-    } else {
-        app.autolaunch().disable()
-    }
-    .map_err(crate::error::to_err)?;
-
-    // 同步写入本地设置
-    let st = app.state::<DbState>();
-    let conn = st.0.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES ('autostart', ?1)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        rusqlite::params![enabled.to_string()],
-    )
-    .map_err(crate::error::to_err)?;
-    let _ = result;
-    Ok(app.autolaunch().is_enabled().map_err(crate::error::to_err)?)
-}
-
-#[tauri::command]
-pub fn get_autostart(app: AppHandle) -> Result<bool, String> {
-    app.autolaunch()
-        .is_enabled()
-        .map_err(crate::error::to_err)
 }
 
 #[tauri::command]

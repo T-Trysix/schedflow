@@ -11,6 +11,7 @@ import {
 import dayjs, { Dayjs } from "dayjs";
 import { useAppStore } from "@/stores/appStore";
 import { useEditorStore } from "@/stores/editorStore";
+import FilterBar from "@/components/layout/FilterBar";
 
 export default function Toolbar() {
   const currentMonth = useAppStore((s) => s.currentMonth);
@@ -68,6 +69,9 @@ export default function Toolbar() {
           今天
         </Button>
       </div>
+
+      {/* 当前筛选（无筛选时返回 null） */}
+      <FilterBar />
 
       <div className="flex-1" />
 

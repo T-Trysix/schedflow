@@ -8,6 +8,9 @@
 > 2026-08-24 第四轮：悬浮球悬停展开偏移（透明区遮挡）/ 单击停靠条球位移消失且重启不回（见第 4 节 K28–K29）。
 > 2026-08-24 第五轮：悬浮球自由态右下角被正方形窗口裁剪 / 日程模式小月历打开时当前周重复显示（见第 4 节 K30–K31）。
 > 2026-08-25 第六轮：悬浮球拖动起步粘滞 / 月视图选中日期格不显示蓝色（一直落在今天）/ 日程模式日程操作改左键（见第 4 节 K32–K34）。
+> 2026-08-26 第七轮：开机自启修复——注册表误指向 debug 构建致登录弹黑框 / 自启开关未接线（见第 4 节 K35）；安装包按 5.2 配方重打（含 K21–K35）；另记 K36（纯 `cargo build --release` 产物为 dev 模式，双击报 localhost 拒绝连接）。
+> 2026-08-27 第八轮：分类筛选误导修复——筛选粘性但无可见反馈、跨视图不一致（日程模式不跟随/搜索文案误导/空态误导为数据丢失）（见第 4 节 K37）。
+> 2026-08-27 第九轮：筛选反馈体验微调——筛选栏并入顶部工具栏（不再占独立一条）/ 悬浮球左键快捷面板取消玻璃透明度 / 搜索页移除"按分类筛选"下拉（见第 4 节 K38）。
 
 ---
 
@@ -25,12 +28,12 @@
 
 | 产物 | 路径 | 大小 |
 |---|---|---|
-| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/SchedFlow_0.1.0_x64-setup.exe` | 2.32 MB（2026-08-21 第二轮 15:38 重新打包） |
-| 免安装主程序 | `src-tauri/target/release/schedflow.exe` | 5.93 MB |
+| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/SchedFlow_0.1.0_x64-setup.exe` | 2.31 MB（2026-08-26 第七轮 09:33 重打，含 K21–K35 全部修复） |
+| 免安装主程序 | `src-tauri/target/release/schedflow.exe` | 5.91 MB（2026-08-26 生产模式重建） |
 
 版本：应用 0.1.0 ｜ Tauri 2.11.5（bundler 2.9.4）｜ 目标平台 Windows x64（测试环境 Windows 11 Pro，WebView2 149）。修复轮未升版本号，安装包同名覆盖。
 
-> ⚠️ **安装包为第二轮产物**：`SchedFlow_0.1.0_x64-setup.exe` 已含 K15–K20，但第三/四轮（K21–K29）改动**尚未重新打包**。装机验收通过后需按 5.2 配方重建（PowerShell + cwd=schedflow + 镜像变量）。
+> ✅ **安装包已更新（2026-08-26 第七轮 09:33）**：`SchedFlow_0.1.0_x64-setup.exe` 按 5.2 配方（PowerShell + cwd=schedflow + 镜像变量）重建，已含 K15–K35 全部修复，可直接装机验收。
 
 ### 2.2 源码树（定稿）
 
@@ -69,7 +72,7 @@ schedflow/
 - **系统托盘**：启动后在右下角通知区显示图标，左键单击打开主窗，右键菜单「打开主窗口 / 设置 / 退出」；「设置」联动主窗切到设置页。
 - **提醒**：Rust 后台线程每 15s 轮询、重复日程展开计算、`notifications` 表防重、系统通知 + 悬浮球联动、免打扰时段、错过补发、待办一次性提醒。
 - **重复日程**：每天/每周/每月/每年/自定义（每 N 天/周/月、工作日）；编辑/删除支持"整个系列"与"仅本次"（仅本次 = 复制非重复 + excluded_dates 排除）。
-- **开机自启**：默认开启，注册 `--minimized` 参数 → 只出悬浮球不弹主窗；single-instance 防重复启动。
+- **开机自启**：默认开启，注册 `--minimized` 参数 → 只出悬浮球不弹主窗；single-instance 防重复启动。自启由自定义 `commands/autostart.rs` 直写 `HKCU\...\Run`（winreg，路径带引号；**debug 构建拒绝注册**；启动时按 DB 设置自愈校准注册表）。
 - **全局快捷键**：Ctrl+Shift+A 快加待办、Ctrl+Shift+D 快加日程、Ctrl+Shift+X 显隐主窗。
 - **分类/标签**：分类 CRUD+颜色（5 个内置分类不可删）、标签自由增删、按分类/标签/优先级/完成态筛选。
 - **搜索**：全局搜索（标题/备注/标签），结果跳转定位。
@@ -139,6 +142,10 @@ schedflow/
 | K32 | 🟡 | **悬浮球拖动起步粘滞、不跟手**：`onPointerDown` 需等 `outerPosition()+currentMonitor()` 两次 IPC 完成才建立 `dragRef`，期间的 pointermove 全部被丢弃 → 起步先停顿、随后跳到当前位移；且 rAF 应用位置后不回写窗口位置，跨次拖动起点会错 | ✅ 已修（2026-08-25 第六轮）：新增 `winPosRef/scaleRef` 缓存，所有 `setPosition` 统一走 `placeWindow` 记录物理位置；`onPointerDown` 用缓存**同步**建立 dragRef（按下即跟手），异步 `Promise.all([outerPosition,currentMonitor])` 校正真实几何不阻塞拖动；rAF 回写最新位置并 `Math.round` 取整，`onPointerMove` 记录最新指针坐标供校正重算 |
 | K33 | 🟡 | **月视图选中日期无蓝色反馈，蓝框一直落在"今天"**：网格仅按 `isToday` 应用 `.today`（整格蓝框 + 日期数字蓝实心圆），选中日期不渲染任何选中态 | ✅ 已修（2026-08-25 第六轮）：按 `d.isSame(selectedDate,"day")` 给格子加 `.selected`（蓝框 + 浅蓝底）——选中哪格哪格变蓝；今天改为日期数字外圈描边（`.today-num` 由实心改描边），不再整格常蓝 |
 | K34 | 🟡 | **日程模式日程操作必须右键才出菜单**：日程卡片 `Dropdown trigger=["contextMenu"]`，编辑/完成/转待办/删除只有右键可见，与左键交互预期不符 | ✅ 已修（2026-08-25 第六轮）：改为 `trigger=["click"]` 左键直接弹出操作菜单；移除原单击选中逻辑与失效的 `selectedEventId/selectEvent` 引用（日程模式无详情面板，单击选中无意义） |
+| K35 | 🔴 | **开机自启弹出空白 cmd 黑框 + 无法访问的小窗**：首次运行自动注册自启时把**调试构建**（`target\debug\schedflow.exe`）写进了 `HKCU\...\Run`——debug 版是**控制台子系统**（`windows_subsystem` 仅在 release 生效），登录时弹出空白黑色控制台，且自启只显示 64×64 透明悬浮球小窗；叠加 `auto-launch` 写注册表对 exe 路径**不加引号**（含空格路径解析失败）；前端"开机自启"开关还从未调用 `set_autostart`，只写 DB 值，关不掉也读不回真实状态 | ✅ 已修（2026-08-26 第七轮）：弃用 `tauri-plugin-autostart`（auto-launch），新增 `commands/autostart.rs` 用 winreg 直写 `HKCU\...\Run`——exe 路径带引号（含空格安全）、**debug 构建拒绝注册**（返回明确错误）、启动时 `sync_autostart` 自愈校准（DB 设置与注册表对齐，自动重写指向 debug/旧路径/无引号的残留项）；前端开关接线 `set_autostart`/`get_autostart`（成功同步 DB、失败回滚并提示）；`Cargo.toml` 移除插件依赖、`capabilities/main.json` 移除 autostart 权限 |
+| K36 | 🔴 | **免安装 exe 双击打不开，WebView2 报"无法访问此页面 / localhost 拒绝连接"**：K35 轮为快速验证用**纯 `cargo build --release`** 产出的 release exe 实为 **dev 模式**产物——plain cargo 不自动启用 `tauri/custom-protocol` feature，`is_dev()` 恒为 true，程序忽略内置前端资源、直接加载 `devUrl`（`http://localhost:1420`）；独立运行时没有 Vite 开发服务器，页面加载失败 | ✅ 已修（2026-08-26 第七轮）：改走标准生产构建 `npm run tauri build`（`beforeBuildCommand` 先 `vite build` 出 `dist/`，cargo 以 `custom-protocol` 生产模式编译并内嵌资源，随后打 NSIS）。**教训：免安装 exe / 安装包一律按 5.2 配方用 `tauri build` 产出，不得用纯 `cargo build --release`** |
+| K37 | 🟡 | **分类筛选粘性但无可见反馈，用户忘记选过分类时看到部分/无数据，误以为数据丢失或程序 bug**：筛选存 `filterStore.categoryId` 跨视图持久，唯一提示是侧边栏分类按钮高亮；且各视图不一致——日程模式与月视图右侧详情面板完全不跟随筛选、搜索页结果实际未按分类过滤却显示"分类：工作"（误导）、空态"暂无日程/没有符合条件的待办"不区分"无数据"与"被筛选" | ✅ 已修（2026-08-27 第八轮）：① 新增全局筛选栏 `FilterBar`（有筛选时主内容区顶部常驻"当前筛选：分类名"+ 一键「清除筛选」）；② 抽取共享谓词 `matchesFilter`（`filterStore.ts`）统一月视图/日程模式/详情面板/待办/搜索；③ 日程模式时间线与周条圆点、详情面板列表现在跟随筛选；④ 搜索结果前端按分类过滤、计数真实；⑤ 空态区分并提示"当前分类「X」…"+「查看全部」按钮；⑥ 未选分类时各视图行为与修复前一致（回归） |
+| K38 | 🟢 | **K37 反馈体验微调三连**：① 筛选栏以独立一条 `h-9` 常驻主内容区顶部，占据纵向空间、视觉上"多了一条"；② 悬浮球左键快捷面板 `.sf-float-panel` 用玻璃拟态（`--sf-glass` 72% 透明 + `backdrop-filter: blur`），透明窗口下桌面内容透出干扰阅读；③ 搜索页头部有独立"按分类筛选"下拉，与侧边栏/全局筛选语义重复 | ✅ 已修（2026-08-27 第九轮）：① `FilterBar` 改为**内联 chip**并入顶部工具栏（`Toolbar` 月份导航右侧，无筛选时返回 `null` 不占空间，含左侧细分隔线）；② `.sf-float-panel` 背景改**不透明实底** `var(--sf-bg-panel)`、移除 `backdrop-filter`（窗口仍 `transparent` 以支撑悬浮球形态，面板内容不再透出）；③ 搜索页移除"按分类筛选"`Select` 下拉——分类筛选仍由侧边栏/全局筛选栏控制，搜索结果继续按 `matchesFilter` 过滤、计数真实 |
 
 ---
 

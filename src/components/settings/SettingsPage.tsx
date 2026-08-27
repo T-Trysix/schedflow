@@ -39,6 +39,7 @@ export default function SettingsPage() {
   const [catModal, setCatModal] = useState<{ open: boolean; category?: Category }>({ open: false });
   const [catForm] = Form.useForm<{ name: string; color: string }>();
   const [tagName, setTagName] = useState("");
+  const [autostartBusy, setAutostartBusy] = useState(false);
 
   const upd = (patch: Partial<typeof settings>) => {
     setMany(patch);
@@ -109,7 +110,30 @@ export default function SettingsPage() {
                     />
                   </SettingRow>
                   <SettingRow label="开机自启" desc="登录 Windows 后自动以悬浮球方式启动">
-                    <Switch checked={settings.autostart} onChange={(v) => upd({ autostart: v })} />
+                    <Switch
+                      checked={settings.autostart}
+                      loading={autostartBusy}
+                      onChange={async (v) => {
+                        setAutostartBusy(true);
+                        try {
+                          // 直接操作注册表（调试版会被后端拒绝），成功后同步本地设置
+                          const ok = await api.setAutostart(v);
+                          setMany({ autostart: ok });
+                        } catch (e) {
+                          message.error(
+                            "设置开机自启失败：" + (e instanceof Error ? e.message : String(e)),
+                          );
+                          // 回滚为注册表真实状态
+                          try {
+                            setMany({ autostart: await api.getAutostart() });
+                          } catch {
+                            /* ignore */
+                          }
+                        } finally {
+                          setAutostartBusy(false);
+                        }
+                      }}
+                    />
                   </SettingRow>
                   <SettingRow label="关闭窗口到悬浮球" desc="关闭主窗口时隐藏到悬浮球而非退出">
                     <Switch checked={settings.closeToFloat} onChange={(v) => upd({ closeToFloat: v })} />

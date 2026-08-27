@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
@@ -36,10 +35,6 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -72,22 +67,9 @@ pub fn run() {
             // ---- 通知权限 ----
             let _ = app.notification().request_permission();
 
-            // ---- 首次运行默认开启开机自启 ----
-            {
-                let st = app.state::<DbState>();
-                let guard = st.0.lock().map_err(|e| e.to_string())?;
-                let has = guard
-                    .query_row(
-                        "SELECT COUNT(*) FROM settings WHERE key='autostart'",
-                        [],
-                        |r| r.get::<_, i64>(0),
-                    )
-                    .unwrap_or(0)
-                    > 0;
-                drop(guard);
-                if !has {
-                    let _ = app.autolaunch().enable();
-                }
+            // ---- 开机自启校准：注册表与设置保持一致，并修复历史指向 debug/旧路径的项 ----
+            if let Err(e) = commands::autostart::sync_autostart(app.handle()) {
+                log::warn!("开机自启校准失败（不影响运行）: {e}");
             }
 
             // ---- 主窗口关闭 → 缩小为悬浮球 ----
@@ -194,8 +176,8 @@ pub fn run() {
             commands::app::show_float,
             commands::app::hide_float,
             commands::app::exit_app,
-            commands::app::set_autostart,
-            commands::app::get_autostart,
+            commands::autostart::set_autostart,
+            commands::autostart::get_autostart,
             commands::app::is_float_visible,
             // 日程
             commands::events::list_events_by_range,

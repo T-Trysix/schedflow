@@ -7,7 +7,7 @@ import { fmtDate, getMonthGrid, isToday, isWeekend, isoWeekday } from "@/lib/dat
 import { useAppStore } from "@/stores/appStore";
 import { useDataStore } from "@/stores/dataStore";
 import { useEditorStore } from "@/stores/editorStore";
-import { useFilterStore } from "@/stores/filterStore";
+import { matchesFilter, useFilterStore } from "@/stores/filterStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { DayEvent } from "@/lib/types";
 
@@ -19,13 +19,7 @@ function useFilteredEvents() {
   const events = useDataStore((s) => s.events);
   const filters = useFilterStore();
   return useMemo(() => {
-    return events.filter((e) => {
-      if (filters.categoryId !== null && e.categoryId !== filters.categoryId) return false;
-      if (filters.status === "done" && !e.completed) return false;
-      if (filters.status === "active" && e.completed) return false;
-      if (filters.priority !== null && e.priority !== filters.priority) return false;
-      return true;
-    });
+    return events.filter((e) => matchesFilter(e, filters));
   }, [events, filters.categoryId, filters.status, filters.priority]);
 }
 

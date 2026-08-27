@@ -18,6 +18,7 @@ import { fmtDate, getMonthGrid, getWeekDays, isToday, isoWeekday } from "@/lib/d
 import { useAppStore } from "@/stores/appStore";
 import { useDataStore } from "@/stores/dataStore";
 import { useEditorStore } from "@/stores/editorStore";
+import { useFilterStore, matchesFilter } from "@/stores/filterStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { DayEvent } from "@/lib/types";
 
@@ -32,6 +33,8 @@ export default function ScheduleView() {
   const events = useDataStore((s) => s.events);
   const loadEvents = useDataStore((s) => s.loadEvents);
   const reloadAll = useDataStore((s) => s.reloadAll);
+  const filter = useFilterStore();
+  const categories = useDataStore((s) => s.categories);
   const weekStart = useSettingsStore((s) => s.settings.weekStart) || 1;
   const timeFormat = useSettingsStore((s) => s.settings.timeFormat) || "24";
   const weekendColor = useSettingsStore((s) => s.settings.weekendColor) ?? true;
@@ -46,9 +49,9 @@ export default function ScheduleView() {
   const dayEvents = useMemo(() => {
     const key = fmtDate(selectedDate);
     return events
-      .filter((e) => e.occurrenceDate === key)
+      .filter((e) => e.occurrenceDate === key && matchesFilter(e, filter))
       .sort((a, b) => (a.isAllDay === b.isAllDay ? (a.startTime ?? "").localeCompare(b.startTime ?? "") : a.isAllDay ? -1 : 1));
-  }, [events, selectedDate]);
+  }, [events, selectedDate, filter]);
 
   const moveWeek = (d: number) => {
     const next = selectedDate.add(d, "week");
@@ -147,7 +150,7 @@ export default function ScheduleView() {
               const today = isToday(d);
               const weekend = isoWeekday(d) === 6 || isoWeekday(d) === 7;
               const sel = d.isSame(selectedDate, "day");
-              const dots = events.filter((e) => e.occurrenceDate === fmtDate(d) && !e.completed).length;
+              const dots = events.filter((e) => e.occurrenceDate === fmtDate(d) && !e.completed && matchesFilter(e, filter)).length;
               return (
                 <div
                   key={fmtDate(d)}
@@ -208,12 +211,22 @@ export default function ScheduleView() {
           {dayEvents.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="今天暂无日程"
+              description={
+                filter.categoryId !== null
+                  ? `当前分类「${categories.find((c) => c.id === filter.categoryId)?.name ?? ""}」今天暂无日程`
+                  : "今天暂无日程"
+              }
               style={{ marginTop: 40 }}
             >
-              <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => openEventEditor({ defaultDate: fmtDate(selectedDate) })}>
-                新建日程
-              </Button>
+              {filter.categoryId !== null ? (
+                <Button size="small" onClick={() => filter.set({ categoryId: null })}>
+                  查看全部
+                </Button>
+              ) : (
+                <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => openEventEditor({ defaultDate: fmtDate(selectedDate) })}>
+                  新建日程
+                </Button>
+              )}
             </Empty>
           ) : (
             <div className="relative pl-4">

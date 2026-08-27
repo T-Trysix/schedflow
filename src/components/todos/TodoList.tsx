@@ -15,7 +15,7 @@ import dayjs from "dayjs";
 import { api } from "@/lib/api";
 import { useDataStore } from "@/stores/dataStore";
 import { useEditorStore } from "@/stores/editorStore";
-import { useFilterStore } from "@/stores/filterStore";
+import { matchesFilter, useFilterStore } from "@/stores/filterStore";
 import { useAppStore } from "@/stores/appStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { ReminderInfo, Todo } from "@/lib/types";
@@ -99,15 +99,13 @@ export default function TodoList() {
       .filter((t) => {
         if (statusTab === "active" && t.completed) return false;
         if (statusTab === "done" && !t.completed) return false;
-        if (filter.categoryId !== null && t.categoryId !== filter.categoryId) return false;
-        if (filter.priority !== null && t.priority !== filter.priority) return false;
-        return true;
+        return matchesFilter(t, filter);
       })
       .sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
         return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
       });
-  }, [todos, statusTab, filter.categoryId, filter.priority]);
+  }, [todos, statusTab, filter]);
 
   const catName = (id: number | null) => categories.find((c) => c.id === id)?.name;
   const catColor = (id: number | null) => categories.find((c) => c.id === id)?.color ?? "#9ca3af";
@@ -211,9 +209,21 @@ export default function TodoList() {
         {filtered.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={todos.length === 0 ? "暂无待办，点击右上角新建" : "没有符合条件的待办"}
+            description={
+              todos.length === 0
+                ? "暂无待办，点击右上角新建"
+                : filter.categoryId !== null
+                  ? `当前分类「${catName(filter.categoryId)}」下没有符合条件的待办`
+                  : "没有符合条件的待办"
+            }
             style={{ marginTop: 60 }}
-          />
+          >
+            {todos.length > 0 && filter.categoryId !== null && (
+              <Button size="small" onClick={() => filter.set({ categoryId: null })}>
+                查看全部
+              </Button>
+            )}
+          </Empty>
         ) : (
           <div className="space-y-1">
             {filtered.map((t) => {

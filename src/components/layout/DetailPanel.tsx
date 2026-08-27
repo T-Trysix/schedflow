@@ -17,6 +17,7 @@ import { api } from "@/lib/api";
 import { useAppStore } from "@/stores/appStore";
 import { useDataStore } from "@/stores/dataStore";
 import { useEditorStore } from "@/stores/editorStore";
+import { useFilterStore, matchesFilter } from "@/stores/filterStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { DayEvent, Event } from "@/lib/types";
 
@@ -30,6 +31,8 @@ export default function DetailPanel() {
   const events = useDataStore((s) => s.events);
   const reloadAll = useDataStore((s) => s.reloadAll);
   const openEventEditor = useEditorStore((s) => s.openEventEditor);
+  const filter = useFilterStore();
+  const categories = useDataStore((s) => s.categories);
   const tags = useDataStore((s) => s.tags);
   const timeFormat = useSettingsStore((s) => s.settings.timeFormat) || "24";
   const [full, setFull] = useState<Event | null>(null);
@@ -37,9 +40,9 @@ export default function DetailPanel() {
   const dayEvents = useMemo(() => {
     const key = selectedDate.format("YYYY-MM-DD");
     return events
-      .filter((e) => e.occurrenceDate === key)
+      .filter((e) => e.occurrenceDate === key && matchesFilter(e, filter))
       .sort((a, b) => (a.isAllDay === b.isAllDay ? (a.startTime ?? "").localeCompare(b.startTime ?? "") : a.isAllDay ? -1 : 1));
-  }, [events, selectedDate]);
+  }, [events, selectedDate, filter]);
 
   useEffect(() => {
     setFull(null);
@@ -220,7 +223,11 @@ export default function DetailPanel() {
             {dayEvents.length === 0 ? (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="这一天没有日程"
+                description={
+                  filter.categoryId !== null
+                    ? `当前分类「${categories.find((c) => c.id === filter.categoryId)?.name ?? ""}」这一天没有日程`
+                    : "这一天没有日程"
+                }
                 style={{ marginTop: 40 }}
               />
             ) : (
