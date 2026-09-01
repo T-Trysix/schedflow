@@ -251,7 +251,8 @@ button:focus-visible {
 /* 提醒气泡 */
 .sf-bubble {
   position: absolute;
-  right: 74px;
+  /* 气泡锚在窗口右侧，窗口贴球左缘放置 → 气泡紧邻悬浮球左侧 */
+  right: 12px;
   top: 4px;
   width: 240px;
   background: var(--sf-glass);

@@ -35,7 +35,7 @@ export default function ScheduleView() {
   const reloadAll = useDataStore((s) => s.reloadAll);
   const filter = useFilterStore();
   const categories = useDataStore((s) => s.categories);
-  const weekStart = useSettingsStore((s) => s.settings.weekStart) || 1;
+  const weekStart = Number(useSettingsStore((s) => s.settings.weekStart)) || 1;
   const timeFormat = useSettingsStore((s) => s.settings.timeFormat) || "24";
   const weekendColor = useSettingsStore((s) => s.settings.weekendColor) ?? true;
   const [miniOpen, setMiniOpen] = useState(false);

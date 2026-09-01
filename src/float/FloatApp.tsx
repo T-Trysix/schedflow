@@ -22,7 +22,7 @@ const BALL_BASE = 64;
 const WIN_PAD = 12;
 const PANEL_W = 380;
 const PANEL_H = 600;
-const BUBBLE_W = 340;
+const BUBBLE_W = 280;
 const BUBBLE_H = 230;
 const MENU_W = 180;
 const MENU_H = 200;
@@ -33,6 +33,12 @@ const SLIVER = 8;
 const DOCK_THRESHOLD = 60;
 // 屏幕边缘工作区安全边距（物理像素，近似避开任务栏/不贴边）
 const EDGE_INSET = 8;
+// 停靠态悬停触发（CSS px）：命中区是整窗，但**展开**只应发生在鼠标贴近可见细条时——
+// 否则鼠标在整窗任意处（离屏幕边缘最远 ~88px）就会把球弹出来。
+// 这里按鼠标到细条的距离判定，带迟滞避免来回抖动：
+// 距细条 ≤ HOVER_TRIGGER 才展开；展开后距细条 > HOVER_KEEP 才收起（须覆盖展开球全部范围，稳定保持）。
+const HOVER_TRIGGER = 16;
+const HOVER_KEEP = 72;
 
 type FloatState = "ball" | "bubble" | "panel" | "menu";
 type DockEdge = "left" | "right" | "top" | "bottom";
@@ -89,6 +95,8 @@ export default function FloatApp() {
   const [bubble, setBubble] = useState<ReminderInfo | null>(null);
   const [menuLeft, setMenuLeft] = useState(WIN_PAD);
   const [todayEvents, setTodayEvents] = useState<DayEvent[]>([]);
+  // 未读提醒列表：悬浮球面板内点击可标记已读，与主窗待办页保持同步
+  const [unreadList, setUnreadList] = useState<ReminderInfo[]>([]);
   // 圆球在窗口内的偏移：打开右键菜单时窗口会被放大/位移，此偏移随窗口补偿，保证圆球的屏幕位置不变
   const [ballOffset, setBallOffset] = useState({ x: WIN_PAD, y: WIN_PAD });
   // 停靠状态（正交于 FloatState：面板/菜单/气泡弹出时球临时解除停靠，但 dockedRef 记住以在收起时还原）
@@ -115,7 +123,6 @@ export default function FloatApp() {
   const scaleRef = useRef(1);
   const didDrag = useRef(false);
   const singleClickTimer = useRef<number | null>(null);
-  const bubbleTimer = useRef<number | null>(null);
   // 停靠边持久记忆（面板/菜单/气泡期间不清除，收起时据此还原停靠条）
   const dockedRef = useRef<DockEdge | null>(null);
   // 停靠几何快照：{ edge, winPos(物理), ballRest(CSS) }，悬停/收起时复用
@@ -128,6 +135,20 @@ export default function FloatApp() {
 
   const ballSize = settings.floatSize ?? BALL_BASE;
   const winSize = ballSize + WIN_PAD * 2;
+
+  // 停靠后可见细条在窗口内的矩形（CSS px），用于悬停近场判定。
+  // 细条 = 球被窗口边缘裁剪后露出的那一段：右/下停靠靠窗口右/下缘，左/上停靠靠左/上缘。
+  const dockedSliverRect = (): { x: number; y: number; w: number; h: number } | null => {
+    if (!docked || !dockGeoRef.current) return null;
+    const s = SLIVER / (scaleRef.current || 1);
+    const b = ballSize;
+    switch (docked) {
+      case "right": return { x: winSize - s, y: WIN_PAD, w: s, h: b };
+      case "left": return { x: 0, y: WIN_PAD, w: s, h: b };
+      case "top": return { x: WIN_PAD, y: 0, w: b, h: s };
+      case "bottom": return { x: WIN_PAD, y: winSize - s, w: b, h: s };
+    }
+  };
 
   const computeDockGeo = (edge: DockEdge, winPos: { x: number; y: number }, m: MonitorInfo) => {
     // 停靠态球的 CSS 偏移：让球大部分溢出窗口被裁剪，只露 SLIVER 物理像素细条
@@ -228,7 +249,7 @@ export default function FloatApp() {
 
   const refreshToday = useCallback(async () => {
     try {
-      const week = getWeekDays(dayjs(), useSettingsStore.getState().settings.weekStart || 1);
+      const week = getWeekDays(dayjs(), Number(useSettingsStore.getState().settings.weekStart) || 1);
       await loadEvents(fmtDate(week[0]), fmtDate(week[6]));
       const key = fmtDate(dayjs());
       const list = useDataStore
@@ -241,15 +262,27 @@ export default function FloatApp() {
     }
   }, [loadEvents]);
 
+  const loadUnread = useCallback(async () => {
+    try {
+      setUnreadList(await api.listUnreadReminders());
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     refreshToday();
   }, [refreshToday]);
+
+  // 未读计数变化（本窗标记已读 / 其他窗口标记后 data-changed 同步）→ 重拉未读列表
+  useEffect(() => {
+    loadUnread();
+  }, [unread, loadUnread]);
 
   // 提醒角标 / 气泡 / 数据联动
   useEffect(() => {
     refreshUnread();
     const enterBubble = async (r: ReminderInfo) => {
-      if (bubbleTimer.current) window.clearTimeout(bubbleTimer.current);
       setBubble(r);
       setState("bubble");
       try {
@@ -261,20 +294,16 @@ export default function FloatApp() {
         const bh = toPhys(BUBBLE_H, m.scale);
         const bl = p.x + toPhys(WIN_PAD, m.scale);
         const bt = p.y + toPhys(WIN_PAD, m.scale);
-        // 默认气泡在球右侧；放不下则翻到左侧
-        let x = bl + toPhys(ballSize, m.scale) + toPhys(GAP, m.scale);
-        if (x + bw > m.x + m.w) x = bl - bw - toPhys(GAP, m.scale);
+        // 气泡默认锚在球左侧（贴近球左缘）；左侧放不下（贴屏幕左缘）则翻到右侧
+        let x = bl - bw - toPhys(GAP, m.scale);
+        if (x < m.x) x = bl + toPhys(ballSize, m.scale) + toPhys(GAP, m.scale);
         const c = clampPhys(x, bt, bw, bh, m);
         await placeWindow(c.x, c.y);
         await win.setSize(new LogicalSize(BUBBLE_W, BUBBLE_H));
       } catch {
         /* ignore */
       }
-      bubbleTimer.current = window.setTimeout(() => {
-        setBubble(null);
-        setState("ball");
-        restoreBallOrDock();
-      }, 8000);
+      // 提醒气泡持久显示：不自动消失，直到用户点"知道了"/"查看"
     };
 
     const unReminder = listen<ReminderInfo>("reminder-fired", (ev) => {
@@ -282,9 +311,17 @@ export default function FloatApp() {
       refreshUnread();
     });
     const unData = listen("data-changed", () => {
-      reloadAll();
-      refreshUnread();
-      refreshToday();
+      // 顺序必须确定：reloadAll 会重拉本周日程并 set 到 store，若与其并发执行，
+      // refreshToday 可能先读到旧 events 快照（今日列表不更新）；而 loadEvents 对
+      // 同范围又有缓存跳过，无法自救。因此先等数据重载完成，再刷新今日列表。
+      void (async () => {
+        try {
+          await reloadAll();
+          await refreshToday();
+        } finally {
+          loadUnread();
+        }
+      })();
     });
     return () => {
       unReminder.then((f) => f());
@@ -469,7 +506,6 @@ export default function FloatApp() {
 
   // ---- 单击 / 双击（用定时器区分）----
   const collapse = useCallback(async () => {
-    if (bubbleTimer.current) window.clearTimeout(bubbleTimer.current);
     setBubble(null);
     // 先收起窗口（此刻圆球还在补偿偏移位，屏幕位置不变），窗口归位后再复位偏移
     setState("ball");
@@ -604,12 +640,56 @@ export default function FloatApp() {
     }
   };
 
-  const dismissBubble = () => {
-    if (bubbleTimer.current) window.clearTimeout(bubbleTimer.current);
-    collapse();
+  // 气泡"知道了"：标记当前提醒已读（同步主窗/角标）后收起
+  const dismissBubble = async () => {
+    if (bubble) {
+      try {
+        await api.markRemindersRead([bubble.id]);
+        refreshUnread();
+      } catch {
+        /* ignore */
+      }
+    }
+    await collapse();
   };
 
-  const badgeVisible = settings.floatShowBadge && unread > 0;
+  // 气泡"查看"：标记已读 → 打开主窗并跳转到对应位置 → 收起
+  const viewBubble = async () => {
+    if (!bubble) return;
+    try {
+      await api.markRemindersRead([bubble.id]);
+      refreshUnread();
+    } catch {
+      /* ignore */
+    }
+    await api.showMain();
+    emitTo("main", "open-reminder", bubble);
+    await collapse();
+  };
+
+  // 悬浮球面板内点击未读提醒：标记已读 → 打开主窗并跳转 → 收起面板
+  const openReminderFromPanel = async (r: ReminderInfo) => {
+    try {
+      await api.markRemindersRead([r.id]);
+      setUnreadList((prev) => prev.filter((x) => x.id !== r.id));
+      refreshUnread();
+      await api.showMain();
+      emitTo("main", "open-reminder", r);
+      await collapse();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const markAllReadInPanel = async () => {
+    try {
+      await api.markAllRemindersRead();
+      setUnreadList([]);
+      refreshUnread();
+    } catch {
+      /* ignore */
+    }
+  };
 
   // 球的 CSS 位置：菜单态用补偿偏移；停靠且未悬停用"细条"偏移，悬停用自然位
   const ballCss =
@@ -628,6 +708,45 @@ export default function FloatApp() {
       ? { x: 0, y: 0, w: winSize, h: winSize }
       : { x: ballCss.x, y: ballCss.y, w: ballSize, h: ballSize };
 
+  const badgeVisible = settings.floatShowBadge && unread > 0;
+  // 停靠且未展开（细条态）：角标脱离球、相对窗口（此时窗口贴屏幕边缘）定位在屏幕内侧一角
+  const dockedSliver = state === "ball" && !!docked && !hovered;
+
+  // 球上角标的 CSS：默认在球右上角；球贴近屏幕右缘时翻到球左缘，贴上缘时翻到球下缘，
+  // 保证角标完整落在屏幕内侧而不被边缘裁切
+  const ballBadgeStyle = (): React.CSSProperties => {
+    const style: React.CSSProperties = { top: -2, right: -2, left: "auto", bottom: "auto" };
+    const winLeft = window.screenX ?? 0;
+    const winTop = window.screenY ?? 0;
+    const ballRight = winLeft + ballCss.x + ballSize;
+    const ballTop = winTop + ballCss.y;
+    const availW = window.screen.availWidth || 0;
+    const availH = window.screen.availHeight || 0;
+    const NEAR = 40;
+    if (availW && availW - ballRight < NEAR) {
+      style.right = "auto";
+      style.left = -2;
+    }
+    if (availH && ballTop < NEAR) {
+      style.top = "auto";
+      style.bottom = -2;
+    }
+    return style;
+  };
+
+  // 细条态角标的 CSS：按停靠边贴向窗口（屏幕）内侧一角 —— 右停靠贴右缘、底停靠贴下缘，其余贴左缘/上缘
+  const sliverBadgeStyle = (): React.CSSProperties => {
+    const s: React.CSSProperties = { left: 6, top: 6, right: "auto", bottom: "auto" };
+    if (docked === "right") {
+      s.left = "auto";
+      s.right = 6;
+    } else if (docked === "bottom") {
+      s.top = "auto";
+      s.bottom = 6;
+    }
+    return s;
+  };
+
   return (
     // 根容器不捕获指针：停靠窗口完全在屏内且比球窗大，透明区必须穿透给桌面
     <div className="w-screen h-screen select-none relative" style={{ background: "transparent", pointerEvents: "none" }}>
@@ -636,8 +755,19 @@ export default function FloatApp() {
         <div
           className="absolute"
           style={{ left: hitCss.x, top: hitCss.y, width: hitCss.w, height: hitCss.h, pointerEvents: "auto" }}
-          onPointerEnter={() => {
-            if (docked && !dragRef.current) setHovered(true);
+          onMouseMove={(e) => {
+            if (stateRef.current !== "ball" || !docked || dragRef.current) return;
+            const r = dockedSliverRect();
+            if (!r) return;
+            const dx = Math.max(r.x - e.clientX, 0, e.clientX - (r.x + r.w));
+            const dy = Math.max(r.y - e.clientY, 0, e.clientY - (r.y + r.h));
+            const d = Math.hypot(dx, dy);
+            // 迟滞：距细条 ≤16px 展开；展开后距细条 >72px 才收起（覆盖展开球全部范围）
+            if (hovered) {
+              if (d > HOVER_KEEP) setHovered(false);
+            } else if (d <= HOVER_TRIGGER) {
+              setHovered(true);
+            }
           }}
           onPointerLeave={() => {
             if (docked && !dragRef.current) setHovered(false);
@@ -670,9 +800,20 @@ export default function FloatApp() {
             <svg viewBox="0 0 24 24" width={ballSize * 0.46} height={ballSize * 0.46} fill="white" aria-hidden>
               <path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5zm3 6h2v2H8v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z" />
             </svg>
-            {badgeVisible && <span className="sf-float-badge">{unread > 99 ? "99+" : unread}</span>}
+            {badgeVisible && (
+              <span className="sf-float-badge" style={ballBadgeStyle()}>
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
           </div>
         </div>
+      )}
+
+      {/* 停靠细条态：角标锚在窗口（屏幕）内侧一角，独立于球渲染，避免被窗口边缘裁切 */}
+      {dockedSliver && badgeVisible && (
+        <span className="sf-float-badge" style={sliverBadgeStyle()}>
+          {unread > 99 ? "99+" : unread}
+        </span>
       )}
 
       {/* 右键菜单（窗口内绘制，临时放大窗口容纳） */}
@@ -701,14 +842,7 @@ export default function FloatApp() {
               <div className="text-[13px] font-medium text-[var(--sf-text)] truncate">{bubble.title}</div>
               <div className="text-[11.5px] text-[var(--sf-text-secondary)] mt-0.5">{bubble.occurrenceAt}</div>
               <div className="mt-2 flex gap-2">
-                <Button
-                  size="small"
-                  type="primary"
-                  onClick={async () => {
-                    await api.showMain();
-                    collapse();
-                  }}
-                >
+                <Button size="small" type="primary" onClick={viewBubble}>
                   查看
                 </Button>
                 <Button size="small" onClick={dismissBubble}>
@@ -751,6 +885,38 @@ export default function FloatApp() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3">
+            {unreadList.length > 0 && (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-[12px] font-semibold text-[var(--sf-text)]">
+                    <BellOutlined className="mr-1 text-[#ff4d4f]" />
+                    未读提醒
+                    <span className="ml-1 font-normal text-[var(--sf-text-secondary)]">{unreadList.length} 条</span>
+                  </div>
+                  <Button size="small" type="link" style={{ fontSize: 11 }} onClick={markAllReadInPanel}>
+                    全部已读
+                  </Button>
+                </div>
+                <div className="space-y-1 mb-1">
+                  {unreadList.slice(0, 3).map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[var(--sf-hover)] cursor-pointer transition-colors"
+                      onClick={() => openReminderFromPanel(r)}
+                      title={r.notes || undefined}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#ff4d4f] shrink-0" />
+                      <span className="text-[12px] text-[var(--sf-text)] truncate flex-1">{r.title}</span>
+                      <span className="text-[10.5px] text-[var(--sf-text-secondary)] shrink-0">
+                        {dayjs(r.occurrenceAt).format("M/D HH:mm")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Divider style={{ margin: "8px 0" }} />
+              </>
+            )}
+
             <div className="text-[12px] text-[var(--sf-text-secondary)] mb-1.5">
               {dayjs().format("M月D日 dddd")} · 今日日程
             </div>

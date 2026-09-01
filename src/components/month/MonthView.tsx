@@ -32,7 +32,7 @@ export default function MonthView() {
   const openEventEditor = useEditorStore((s) => s.openEventEditor);
   const reloadAll = useDataStore((s) => s.reloadAll);
   const loadEvents = useDataStore((s) => s.loadEvents);
-  const weekStart = useSettingsStore((s) => s.settings.weekStart) || 1;
+  const weekStart = Number(useSettingsStore((s) => s.settings.weekStart)) || 1;
   const timeFormat = useSettingsStore((s) => s.settings.timeFormat) || "24";
   const weekendColor = useSettingsStore((s) => s.settings.weekendColor) ?? true;
   const filtered = useFilteredEvents();

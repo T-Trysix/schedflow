@@ -11,6 +11,9 @@
 > 2026-08-26 第七轮：开机自启修复——注册表误指向 debug 构建致登录弹黑框 / 自启开关未接线（见第 4 节 K35）；安装包按 5.2 配方重打（含 K21–K35）；另记 K36（纯 `cargo build --release` 产物为 dev 模式，双击报 localhost 拒绝连接）。
 > 2026-08-27 第八轮：分类筛选误导修复——筛选粘性但无可见反馈、跨视图不一致（日程模式不跟随/搜索文案误导/空态误导为数据丢失）（见第 4 节 K37）。
 > 2026-08-27 第九轮：筛选反馈体验微调——筛选栏并入顶部工具栏（不再占独立一条）/ 悬浮球左键快捷面板取消玻璃透明度 / 搜索页移除"按分类筛选"下拉（见第 4 节 K38）。
+> 2026-08-27 第十轮：悬浮球停靠态悬停触发范围收窄（不再"离很远就弹出"）/ 新增解压即用便携版（免安装电脑可用，NSIS 安装包保留）（见第 4 节 K39–K40）。
+> 2026-08-28 第十一轮：消息提醒持久化（气泡不再自动消失）/ 未读提醒跨窗口同步（标记已读广播 data-changed）/ 提醒气泡改锚定悬浮球左侧（停靠时可见）（见第 4 节 K41–K43）。
+> 2026-09-01 第十二轮：悬浮球数字角标被屏幕边缘裁切 / 日程待办完成后未读不清零 / 悬浮球创建后今日列表不自动更新 / 周日起始设置重启后失效（见第 4 节 K44–K47）。
 
 ---
 
@@ -28,12 +31,13 @@
 
 | 产物 | 路径 | 大小 |
 |---|---|---|
-| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/SchedFlow_0.1.0_x64-setup.exe` | 2.31 MB（2026-08-26 第七轮 09:33 重打，含 K21–K35 全部修复） |
-| 免安装主程序 | `src-tauri/target/release/schedflow.exe` | 5.91 MB（2026-08-26 生产模式重建） |
+| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/SchedFlow_0.1.0_x64-setup.exe` | 2.42 MB（2026-08-27 第十轮 11:27 重打，含 K15–K40 全部修复） |
+| 便携版 zip（解压即用） | `dist-portable/SchedFlow_0.1.0_x64_portable.zip`（内含 `schedflow.exe` + `使用说明.txt`） | 2.79 MB（2026-08-27 第十轮 11:27，`scripts/build-portable.ps1` 一键产出） |
+| 免安装主程序 | `src-tauri/target/release/schedflow.exe` | 5.91 MB（2026-08-27 第十轮 11:27 生产模式重建，含全部修复） |
 
 版本：应用 0.1.0 ｜ Tauri 2.11.5（bundler 2.9.4）｜ 目标平台 Windows x64（测试环境 Windows 11 Pro，WebView2 149）。修复轮未升版本号，安装包同名覆盖。
 
-> ✅ **安装包已更新（2026-08-26 第七轮 09:33）**：`SchedFlow_0.1.0_x64-setup.exe` 按 5.2 配方（PowerShell + cwd=schedflow + 镜像变量）重建，已含 K15–K35 全部修复，可直接装机验收。
+> ✅ **安装包与便携版已更新（2026-08-28 第十一轮 10:31）**：`SchedFlow_0.1.0_x64-setup.exe` 与 `dist-portable/SchedFlow_0.1.0_x64_portable.zip` 按 5.2 配方重建，已含 K15–K43 全部修复（含第十一轮提醒持久化/未读跨窗口同步/气泡左侧锚定）。重打命令见 5.2 便携版脚本。
 
 ### 2.2 源码树（定稿）
 
@@ -67,8 +71,8 @@ schedflow/
 
 - **月视图**：7 列网格、今日高亮、周末着色、分类色圆点、每格 ≤5 条摘要 + "+N"、上/下月切换、年月选择器、回到今天、单击详情、双击新建、日程跨格拖拽改期、待办拖入格子转日程、周起始日可设（默认周一）。
 - **日程模式**：自适应窗口宽度的手机样式（**窗口不再缩放、内容随窗口宽度拉伸**，`scheduleModeWidth` 设置项已移除）、顶部周条（切周/高亮今天）、下拉小月历、当日时间线、点空白/＋ 新建、日程拖到周条改期。
-- **待办清单**：快速新增、提醒时间、优先级/标签/备注、排序、待办⇄日程互转（拖拽/移除日期）；未读提醒列表（提醒后侧边栏待办项出红点 → 点入待办页顶部显示未读提醒，逐条标记已读并跳转定位——日程→月视图当天、待办→轻提示，一键「全部已读」清红点）。
-- **悬浮球**：四边停靠 + 悬停展开（`DOCK_THRESHOLD=48` 物理 px；左/右→竖条、上/下→横条，仅露 `SLIVER=8` 物理 px 细条；窗口恒 `winSize×winSize` 不 resize，球溢出窗口边界被 OS 裁剪成细条，悬停滑出完整圆球）、单击细条打开快捷面板（面板 header 锚点球点击收起、还原停靠条）、真实拖动才解除停靠、`floatDock/floatX/floatY` 持久化重启恢复；拖动按 DPI 缩放换算 + rAF 合并、跟手；位置记忆、红色角标、提醒气泡、右键菜单（打开主窗/快加待办/快加日程/退出）、大小可调、关闭主窗即缩小为悬浮球；窗口背景全透明（`background_color` alpha=0，圆球周围不显示白底）、阴影为圆形 drop-shadow（非方形 box-shadow）、hover 放大不溢出窗口、右键菜单在窗口内绘制（临时放大窗口并补偿圆球偏移，圆球的屏幕位置完全不动）；停靠窗口完全在屏内且大于球窗，根容器 `pointer-events:none`、仅交互子元素 `pointer-events:auto`，停靠条旁透明区不挡桌面点击。
+- **待办清单**：快速新增、提醒时间、优先级/标签/备注、排序、待办⇄日程互转（拖拽/移除日期）；未读提醒列表（提醒后侧边栏待办项出红点 → 点入待办页顶部显示未读提醒，逐条标记已读并跳转定位——日程→月视图当天、待办→轻提示，一键「全部已读」清红点）；**标记已读跨窗口同步**（`mark_reminders_read` 广播 `data-changed`，主窗与悬浮球角标/未读列表同步刷新，K42）。
+- **悬浮球**：四边停靠 + 悬停展开（`DOCK_THRESHOLD=48` 物理 px；左/右→竖条、上/下→横条，仅露 `SLIVER=8` 物理 px 细条；窗口恒 `winSize×winSize` 不 resize，球溢出窗口边界被 OS 裁剪成细条，悬停滑出完整圆球）、单击细条打开快捷面板（面板 header 锚点球点击收起、还原停靠条）、真实拖动才解除停靠、`floatDock/floatX/floatY` 持久化重启恢复；拖动按 DPI 缩放换算 + rAF 合并、跟手；位置记忆、红色角标、提醒气泡（**锚定球左侧、持久显示至手动关闭**，K41/K43）、右键菜单（打开主窗/快加待办/快加日程/退出）、快捷面板含未读提醒列表（点击标记已读并跳转、全部已读，K42）、大小可调、关闭主窗即缩小为悬浮球；窗口背景全透明（`background_color` alpha=0，圆球周围不显示白底）、阴影为圆形 drop-shadow（非方形 box-shadow）、hover 放大不溢出窗口、右键菜单在窗口内绘制（临时放大窗口并补偿圆球偏移，圆球的屏幕位置完全不动）；停靠窗口完全在屏内且大于球窗，根容器 `pointer-events:none`、仅交互子元素 `pointer-events:auto`，停靠条旁透明区不挡桌面点击。
 - **系统托盘**：启动后在右下角通知区显示图标，左键单击打开主窗，右键菜单「打开主窗口 / 设置 / 退出」；「设置」联动主窗切到设置页。
 - **提醒**：Rust 后台线程每 15s 轮询、重复日程展开计算、`notifications` 表防重、系统通知 + 悬浮球联动、免打扰时段、错过补发、待办一次性提醒。
 - **重复日程**：每天/每周/每月/每年/自定义（每 N 天/周/月、工作日）；编辑/删除支持"整个系列"与"仅本次"（仅本次 = 复制非重复 + excluded_dates 排除）。
@@ -146,6 +150,15 @@ schedflow/
 | K36 | 🔴 | **免安装 exe 双击打不开，WebView2 报"无法访问此页面 / localhost 拒绝连接"**：K35 轮为快速验证用**纯 `cargo build --release`** 产出的 release exe 实为 **dev 模式**产物——plain cargo 不自动启用 `tauri/custom-protocol` feature，`is_dev()` 恒为 true，程序忽略内置前端资源、直接加载 `devUrl`（`http://localhost:1420`）；独立运行时没有 Vite 开发服务器，页面加载失败 | ✅ 已修（2026-08-26 第七轮）：改走标准生产构建 `npm run tauri build`（`beforeBuildCommand` 先 `vite build` 出 `dist/`，cargo 以 `custom-protocol` 生产模式编译并内嵌资源，随后打 NSIS）。**教训：免安装 exe / 安装包一律按 5.2 配方用 `tauri build` 产出，不得用纯 `cargo build --release`** |
 | K37 | 🟡 | **分类筛选粘性但无可见反馈，用户忘记选过分类时看到部分/无数据，误以为数据丢失或程序 bug**：筛选存 `filterStore.categoryId` 跨视图持久，唯一提示是侧边栏分类按钮高亮；且各视图不一致——日程模式与月视图右侧详情面板完全不跟随筛选、搜索页结果实际未按分类过滤却显示"分类：工作"（误导）、空态"暂无日程/没有符合条件的待办"不区分"无数据"与"被筛选" | ✅ 已修（2026-08-27 第八轮）：① 新增全局筛选栏 `FilterBar`（有筛选时主内容区顶部常驻"当前筛选：分类名"+ 一键「清除筛选」）；② 抽取共享谓词 `matchesFilter`（`filterStore.ts`）统一月视图/日程模式/详情面板/待办/搜索；③ 日程模式时间线与周条圆点、详情面板列表现在跟随筛选；④ 搜索结果前端按分类过滤、计数真实；⑤ 空态区分并提示"当前分类「X」…"+「查看全部」按钮；⑥ 未选分类时各视图行为与修复前一致（回归） |
 | K38 | 🟢 | **K37 反馈体验微调三连**：① 筛选栏以独立一条 `h-9` 常驻主内容区顶部，占据纵向空间、视觉上"多了一条"；② 悬浮球左键快捷面板 `.sf-float-panel` 用玻璃拟态（`--sf-glass` 72% 透明 + `backdrop-filter: blur`），透明窗口下桌面内容透出干扰阅读；③ 搜索页头部有独立"按分类筛选"下拉，与侧边栏/全局筛选语义重复 | ✅ 已修（2026-08-27 第九轮）：① `FilterBar` 改为**内联 chip**并入顶部工具栏（`Toolbar` 月份导航右侧，无筛选时返回 `null` 不占空间，含左侧细分隔线）；② `.sf-float-panel` 背景改**不透明实底** `var(--sf-bg-panel)`、移除 `backdrop-filter`（窗口仍 `transparent` 以支撑悬浮球形态，面板内容不再透出）；③ 搜索页移除"按分类筛选"`Select` 下拉——分类筛选仍由侧边栏/全局筛选栏控制，搜索结果继续按 `matchesFilter` 过滤、计数真实 |
+| K39 | 🟡 | **悬浮球吸附（停靠）态悬停触发范围过大**：停靠时命中区 = 整个窗口（`hitCss {0,0,winSize,winSize}`，约 88×88 CSS px），`onPointerEnter` 进窗即 `setHovered(true)`——鼠标在距屏幕边缘最远约 88px 处就把球"弹"出来，误触严重 | ✅ 已修（2026-08-27 第十轮）：改为**按鼠标到可见细条的距离**判定展开/收起（`FloatApp.tsx`）：新增 `dockedSliverRect()` 按停靠边算出 8px 细条在窗口内的矩形；`onPointerEnter` 换 `onMouseMove` 近场判定——距细条 ≤ `HOVER_TRIGGER`(16px) 才展开，展开后距细条 > `HOVER_KEEP`(72px) 才收起（迟滞覆盖展开球全部范围，稳定保持、防来回抖动）；事件源仍整窗（展开球与细条相距约一个窗口宽，命中区必须同时覆盖两者），`onPointerLeave` 出窗仍收起 |
+| K40 | 🟢 | **无权安装软件的电脑（公司/学校机器）无法装 NSIS 安装包，缺少"解压即用"分发**：Tauri release exe 本就是自包含（内嵌前端资源 + 系统 WebView2），可做便携版，但工程此前只有安装包 | ✅ 已修（2026-08-27 第十轮）：新增 `scripts/build-portable.ps1` 一键产出 `dist-portable\SchedFlow_0.1.0_x64_portable.zip`（`schedflow.exe` + `使用说明.txt`），NSIS 安装包照常保留；脚本复用 5.2 配方（PowerShell + cwd=schedflow + 镜像变量），先 `tauri build` 重打再组目录压缩；数据与安装版共用 `%APPDATA%\com.schedflow.app`；说明文档含 WebView2 前置提示与"仍要运行"引导。**脚本约定：ps1 保持纯 ASCII**（PS 5.1 对无 BOM 的 ps1 按 ANSI/GBK 读取，源码含中文会在行尾重配对并吞掉 here-string 终止符——中文文案全部放 `portable-readme.txt` 模板，`{VER}` 占位） |
+| K41 | 🟡 | **提醒气泡 8 秒自动消失**：新提醒弹出后用户未及时看到就收起（尤其停靠/后台时），"知道了"之前先没了 | ✅ 已修（2026-08-28 第十一轮）：移除 `enterBubble` 里的 8s 自动消失定时器，气泡**持久显示直到用户主动点"知道了"/"查看"**；`bubbleTimer` ref 一并删除（`collapse`/`dismissBubble` 不再引用） |
+| K42 | 🟡 | **未读提醒状态跨窗口不一致**：① 气泡"知道了/查看"只收起不调用 `mark_reminders_read` → 红点/未读列表永不消失；② `mark_reminders_read`/`mark_all_reminders_read` 不广播 `data-changed` → 在主窗待办页标记已读后，悬浮球角标/面板仍显示未读（反过来亦同） | ✅ 已修（2026-08-28 第十一轮）：气泡按钮先标记已读再收起/跳转；两个 mark 命令改带 `AppHandle` 并 `drop(conn)` 后广播 `data-changed`，全窗口同步刷新角标与未读列表；悬浮球面板新增未读提醒列表（点条目标记已读→打开主窗→`open-reminder` 事件跳转，含"全部已读"）；"查看"复用主窗待办页跳转逻辑（抽共享助手 `src/lib/reminderNav.ts`，日程→月视图定位、待办→轻提示）；主窗待办页原手动 `refreshUnread()` 保留以即时清红点 |
+| K43 | 🟡 | **提醒气泡默认锚在悬浮球右侧、气泡框 CSS 预留 74px 球位造成错位，停靠（尤其右缘）时气泡不可见或偏移** | ✅ 已修（2026-08-28 第十一轮）：气泡窗口默认**锚在球左侧**（左缘放不下自动翻右侧，`clampPhys` 保证全屏内）；`.sf-bubble` 改贴窗口右缘（`right:74px→12px`），`BUBBLE_W` 340→280 收窄窗口——右停靠时气泡天然落在球左侧可见、左停靠翻到右侧同样可见 |
+| K44 | 🟡 | **悬浮球数字角标被屏幕边缘裁切不可见**：`.sf-float-badge` 固定锚在球右上角（`top:-2;right:-2`），右/上停靠时球大部分溢出窗口被裁剪，角标恰好落在屏外/半切 | ✅ 已修（2026-09-01 第十二轮）：`FloatApp.tsx` 新增 `dockedSliver`/`ballBadgeStyle`/`sliverBadgeStyle` —— ① **停靠细条态**（`state==="ball" && docked && !hovered`）角标脱离球、相对窗口（此时贴屏幕边缘）锚在**屏幕内侧一角**：右停靠贴右缘 6px、底停靠贴下缘、其余贴左/上缘（整枚完整可见，`pointer-events:none` 不挡桌面点击）；② **球态**（自由/展开/菜单）角标按 `window.screenX/screenY` + `availWidth/Height` 判定贴边：球右缘距屏幕右缘 <40px 翻到球左缘、球上缘距屏幕顶 <40px 翻到球下缘，CSS 像素换算与 DPI 无关 |
+| K45 | 🟡 | **日程/待办完成后，其未读提醒仍计入"未读"红点**：`set_event_completed`/`set_todo_completed` 只改 completed 标记，从未触碰 notifications 表 → 事项已完成但角标/未读列表仍显示未读 | ✅ 已修（2026-09-01 第十二轮）：两个完成命令的 `completed=true` 分支新增 `UPDATE notifications SET read=1 WHERE entity_type='event'/'todo' AND entity_id=?1 AND read=0`，随后照常广播 `data-changed`——完成即清该事项全部未读提醒（含重复日程其余发生次），角标/未读列表跨窗口同步清零 |
+| K46 | 🟡 | **从悬浮球窗口创建日程/待办后，悬浮球窗口不自动更新**：`data-changed` 处理器里 `reloadAll()` 与 `refreshToday()` 并发执行——`refreshToday` 先 `loadEvents`（同范围命中缓存跳过拉取）就读 `useDataStore.getState().events`，而 `reloadAll` 的 `listEventsByRange` 可能尚未返回/`set` → 读到旧快照，今日列表不更新 | ✅ 已修（2026-09-01 第十二轮）：处理器改为**顺序执行**——先 `await reloadAll()`（重拉本周日程并 `set({events})`），再 `await refreshToday()` 从已更新的 store 读取；`finally` 里 `loadUnread()`。消除了创建/修改后悬浮球面板今日日程不刷新的竞态 |
+| K47 | 🟡 | **每周起始日设为"周日"后重启失效**：`weekStart` 若以字符串（`"7"`）读回，rc-segmented 用**严格相等**比对 `segmentedOption.value === rawValue` 导致选中态丢失；且 `{...DEFAULTS, ...raw}` 合并不校验类型，脏值会一路传导 | ✅ 已修（2026-09-01 第十二轮）：双重健壮化——① `settingsStore.load()` 归一化 `weekStart`（`Number()` 强转 + 校验 1..7，非法回退默认 1，兼容历史字符串脏数据）；② 设置页 Segmented 选项改用**字符串值**（`"1"`/`"7"`）+ `onChange` 回写 `Number(v)`（严格相等恒命中、写库恒为数字）；③ `MonthView`/`ScheduleView`/`FloatApp` 调用处 `Number()` 兜底。已核实写库/读回路径无重置（仅 upsert、重启读回 7），根因在类型一致性 |
 
 ---
 
@@ -162,6 +175,7 @@ schedflow/
 ### 5.2 外部依赖与网络环境
 
 - **GitHub 直连被墙**：打包机必须设 `TAURI_BUNDLER_TOOLS_GITHUB_MIRROR=https://gh.ddlc.top`（同一 PowerShell 命令内设好再 `npm run tauri build`）。换机器/重装必须重设。详见记忆 ref-004。
+- **便携版（解压即用）**：`powershell -NoProfile -File scripts\build-portable.ps1` 一键产出 `dist-portable\SchedFlow_<ver>_x64_portable.zip`（release exe + 使用说明），同时照常重打 NSIS 安装包；脚本已内嵌镜像变量与 5.2 配方，ps1 源码须保持纯 ASCII（见 K40）。
 - crates 走 `.cargo/config.toml` sparse 镜像（rsproxy.cn，含 `[http] check-revoke=false`）；npm 走 registry.npmmirror.com。⚠️ 该配置只在 **PowerShell 且 cwd=schedflow** 时稳定生效——Git Bash 后台 shell 下 cargo 会读不到项目内配置而直连 crates.io 超时。规避：构建一律走 PowerShell（本文件 5.2 顶部配方），或用内联 `cargo --config 'source.crates-io.replace-with="rsproxy-sparse"'`。
 - 运行时依赖系统 WebView2（Windows 10/11 自带，本机 149）。
 

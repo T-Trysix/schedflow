@@ -15,7 +15,8 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // dist-portable：便携构建脚本会往该目录写 exe/zip（Windows 写文件时锁定 → EBUSY 崩溃），必须忽略
+      ignored: ["**/src-tauri/**", "**/dist-portable/**"],
     },
   },
   build: {

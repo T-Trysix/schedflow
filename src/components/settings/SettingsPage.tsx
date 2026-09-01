@@ -151,11 +151,13 @@ export default function SettingsPage() {
                 <div className="space-y-5 pt-1">
                   <SettingRow label="每周起始日" desc="影响月视图与日程模式周条">
                     <Segmented
-                      value={settings.weekStart}
-                      onChange={(v) => upd({ weekStart: v })}
+                      // 用字符串值做选项、回写时再转回数字：无论 store 里是 7 还是 "7"，
+                      // Segmented 的严格相等比对都能命中选中态；写库始终是合法数字
+                      value={String(settings.weekStart)}
+                      onChange={(v) => upd({ weekStart: Number(v) })}
                       options={[
-                        { label: "周一", value: 1 },
-                        { label: "周日", value: 7 },
+                        { label: "周一", value: "1" },
+                        { label: "周日", value: "7" },
                       ]}
                     />
                   </SettingRow>

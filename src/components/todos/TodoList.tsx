@@ -13,10 +13,10 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { api } from "@/lib/api";
+import { navigateToReminder } from "@/lib/reminderNav";
 import { useDataStore } from "@/stores/dataStore";
 import { useEditorStore } from "@/stores/editorStore";
 import { matchesFilter, useFilterStore } from "@/stores/filterStore";
-import { useAppStore } from "@/stores/appStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { ReminderInfo, Todo } from "@/lib/types";
 
@@ -32,10 +32,6 @@ export default function TodoList() {
   const categories = useDataStore((s) => s.categories);
   const tags = useDataStore((s) => s.tags);
   const timeFormat = useSettingsStore((s) => s.settings.timeFormat) || "24";
-  const setSelectedDate = useAppStore((s) => s.setSelectedDate);
-  const setMode = useAppStore((s) => s.setMode);
-  const setCurrentMonth = useAppStore((s) => s.setCurrentMonth);
-  const selectEvent = useAppStore((s) => s.selectEvent);
   const [statusTab, setStatusTab] = useState<"active" | "done" | "all">("active");
   const [unreadList, setUnreadList] = useState<ReminderInfo[]>([]);
 
@@ -67,18 +63,9 @@ export default function TodoList() {
     try {
       await api.markRemindersRead([r.id]);
       setUnreadList((prev) => prev.filter((x) => x.id !== r.id));
-      // mark_reminders_read 不发射 data-changed，需手动刷新红点计数
+      // mark_reminders_read 现在会广播 data-changed，这里仍手动刷新红点避免等待 IPC 往返
       refreshUnread();
-      if (r.entityType === "event") {
-        // 跳月视图：先切模式/月份/日期（这些 setter 会清 selectedEventId），selectEvent 必须最后调
-        const d = dayjs(r.occurrenceAt);
-        setMode("month");
-        setCurrentMonth(d);
-        setSelectedDate(d);
-        selectEvent(r.entityId, d.format("YYYY-MM-DD"));
-      } else {
-        message.success(`提醒：${r.title}`);
-      }
+      navigateToReminder(r);
     } catch {
       message.error("操作失败");
     }

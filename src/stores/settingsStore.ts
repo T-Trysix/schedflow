@@ -48,7 +48,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   load: async () => {
     try {
       const raw = await api.getSettings();
-      const merged = { ...DEFAULTS, ...(raw as Partial<Settings>) };
+      const merged = { ...DEFAULTS, ...(raw as Partial<Settings>) } as Settings;
+      // 归一化 weekStart：兼容历史脏数据（可能以字符串 "7"/非法值存库）。
+      // 侧栏/月视图据此计算周起始，Segmented 又用严格相等比对，字符串会让选中态失效
+      const ws = Number(merged.weekStart);
+      merged.weekStart = Number.isInteger(ws) && ws >= 1 && ws <= 7 ? ws : DEFAULTS.weekStart;
       set({ settings: merged, loaded: true });
       applyThemeFromSettings(merged);
       // 监听系统主题变化

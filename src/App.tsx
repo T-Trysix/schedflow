@@ -17,6 +17,8 @@ import { useDataStore } from "./stores/dataStore";
 import { useEditorStore } from "./stores/editorStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { api } from "./lib/api";
+import { navigateToReminder } from "./lib/reminderNav";
+import type { ReminderInfo } from "./lib/types";
 import { dayjs, fmtDate } from "./lib/date";
 
 const MODE_KEY_SHORTCUT: Record<string, "month" | "schedule" | "todos" | "search"> = {
@@ -67,6 +69,10 @@ export default function App() {
     const unReminder = listen("reminder-fired", () => {
       useDataStore.getState().refreshUnread();
     });
+    // 悬浮球气泡/面板点击"查看" → 主窗跳转到该提醒对应位置（已读由发起方先行标记）
+    const unOpenReminder = listen<ReminderInfo>("open-reminder", (ev) => {
+      navigateToReminder(ev.payload);
+    });
     // 系统托盘"设置"菜单 → 打开主窗并切到设置页
     const unOpenSettings = listen("open-settings", () => {
       useAppStore.getState().setMode("settings");
@@ -97,6 +103,7 @@ export default function App() {
       unShortcut.then((f) => f());
       unData.then((f) => f());
       unReminder.then((f) => f());
+      unOpenReminder.then((f) => f());
       unOpenSettings.then((f) => f());
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("keydown", onKey);

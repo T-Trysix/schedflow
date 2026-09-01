@@ -242,7 +242,11 @@ pub fn list_unread_reminders(state: tauri::State<DbState>) -> Result<Vec<Reminde
 }
 
 #[tauri::command]
-pub fn mark_reminders_read(state: tauri::State<DbState>, ids: Vec<i64>) -> Result<(), String> {
+pub fn mark_reminders_read(
+    app: tauri::AppHandle,
+    state: tauri::State<DbState>,
+    ids: Vec<i64>,
+) -> Result<(), String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     if ids.is_empty() {
         return Ok(());
@@ -251,13 +255,21 @@ pub fn mark_reminders_read(state: tauri::State<DbState>, ids: Vec<i64>) -> Resul
     let sql = format!("UPDATE notifications SET read=1 WHERE id IN ({placeholders})");
     conn.execute(&sql, rusqlite::params_from_iter(ids.iter()))
         .map_err(|e| e.to_string())?;
+    drop(conn);
+    // 标记已读会改变"未读角标/未读列表"，广播数据变更让主窗与悬浮球同步刷新
+    let _ = app.emit("data-changed", ());
     Ok(())
 }
 
 #[tauri::command]
-pub fn mark_all_reminders_read(state: tauri::State<DbState>) -> Result<(), String> {
+pub fn mark_all_reminders_read(
+    app: tauri::AppHandle,
+    state: tauri::State<DbState>,
+) -> Result<(), String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     conn.execute("UPDATE notifications SET read=1 WHERE read=0", [])
         .map_err(|e| e.to_string())?;
+    drop(conn);
+    let _ = app.emit("data-changed", ());
     Ok(())
 }

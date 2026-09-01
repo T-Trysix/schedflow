@@ -171,6 +171,14 @@ pub fn set_todo_completed(app: tauri::AppHandle, state: State<DbState>, id: i64,
         params![completed as i64, now_str(), id],
     )
     .map_err(|e| e.to_string())?;
+    // 完成待办后，把该待办未读的提醒一并标记已读：事项已完成，提醒不应再计"未读"
+    if completed {
+        conn.execute(
+            "UPDATE notifications SET read=1 WHERE entity_type='todo' AND entity_id=?1 AND read=0",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
     drop(conn);
     let _ = app.emit("data-changed", ());
     Ok(())
