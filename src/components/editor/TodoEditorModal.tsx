@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DatePicker, Form, Input, Modal, Select, TimePicker, message } from "antd";
 import dayjs, { Dayjs } from "dayjs";
 import { api } from "@/lib/api";
@@ -26,19 +26,44 @@ export default function TodoEditorModal() {
   const [form] = Form.useForm<FormValues>();
   const todo: Todo | null | undefined = editor?.todo;
 
-  if (!editor?.open) return null;
+  const initial: FormValues = useMemo(
+    () =>
+      todo
+        ? {
+            title: todo.title,
+            notes: todo.notes || undefined,
+            categoryId: todo.categoryId ?? undefined,
+            priority: todo.priority,
+            tagIds: todo.tags,
+            reminderDate: todo.reminderAt ? dayjs(todo.reminderAt) : undefined,
+            reminderTime: todo.reminderAt ? dayjs(todo.reminderAt) : undefined,
+          }
+        : {
+            title: "",
+            notes: undefined,
+            // 显式补全以下字段为 undefined：Form.useForm 实例跨 Modal 关闭持久化，
+            // rc-field-form 重新挂载时把 store 里的旧值覆盖在 initialValues 之上，
+            // 缺 key 会导致"新建待办带出上一条的内容"
+            categoryId: undefined,
+            priority: 0,
+            tagIds: undefined,
+            reminderDate: undefined,
+            reminderTime: undefined,
+          },
+    [todo],
+  );
 
-  const initial: FormValues = todo
-    ? {
-        title: todo.title,
-        notes: todo.notes || undefined,
-        categoryId: todo.categoryId ?? undefined,
-        priority: todo.priority,
-        tagIds: todo.tags,
-        reminderDate: todo.reminderAt ? dayjs(todo.reminderAt) : undefined,
-        reminderTime: todo.reminderAt ? dayjs(todo.reminderAt) : undefined,
-      }
-    : { title: "", notes: undefined, priority: 0 };
+  // 打开弹窗时统一初始化 form：
+  // 1) resetFields 清掉上次编辑残留（Form.useForm 实例跨 Modal 关闭持久化）
+  // 2) 应用当前 initial —— 修复"多个待办点编辑只显示最新打开的那条"
+  useEffect(() => {
+    if (!editor?.open) return;
+    form.resetFields();
+    form.setFieldsValue(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor?.open, initial]);
+
+  if (!editor?.open) return null;
 
   const handleOk = async () => {
     try {

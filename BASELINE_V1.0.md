@@ -14,6 +14,9 @@
 > 2026-08-27 第十轮：悬浮球停靠态悬停触发范围收窄（不再"离很远就弹出"）/ 新增解压即用便携版（免安装电脑可用，NSIS 安装包保留）（见第 4 节 K39–K40）。
 > 2026-08-28 第十一轮：消息提醒持久化（气泡不再自动消失）/ 未读提醒跨窗口同步（标记已读广播 data-changed）/ 提醒气泡改锚定悬浮球左侧（停靠时可见）（见第 4 节 K41–K43）。
 > 2026-09-01 第十二轮：悬浮球数字角标被屏幕边缘裁切 / 日程待办完成后未读不清零 / 悬浮球创建后今日列表不自动更新 / 周日起始设置重启后失效（见第 4 节 K44–K47）。
+> 2026-09-03 第十三轮：悬浮球停靠隐藏态露出面积放大到整球约 1/3（不再 8px 难抓细线）/ 月视图四角格选中蓝框外角改圆角（见第 4 节 K48–K49）。
+> 2026-09-03 第十四轮：悬浮球停靠隐藏态露出面积由约 1/3 收细到整球约 1/4（见第 4 节 K50）。
+> 2026-09-17 第十五轮：待办编辑器残留上一条内容 / 多个待办点编辑只打开最新一条（K23 同类根因）/ 悬浮球停靠隐藏态窗口收缩以消除透明区遮挡点击（见第 4 节 K51–K53）。
 
 ---
 
@@ -31,13 +34,13 @@
 
 | 产物 | 路径 | 大小 |
 |---|---|---|
-| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/SchedFlow_0.1.0_x64-setup.exe` | 2.42 MB（2026-08-27 第十轮 11:27 重打，含 K15–K40 全部修复） |
-| 便携版 zip（解压即用） | `dist-portable/SchedFlow_0.1.0_x64_portable.zip`（内含 `schedflow.exe` + `使用说明.txt`） | 2.79 MB（2026-08-27 第十轮 11:27，`scripts/build-portable.ps1` 一键产出） |
-| 免安装主程序 | `src-tauri/target/release/schedflow.exe` | 5.91 MB（2026-08-27 第十轮 11:27 生产模式重建，含全部修复） |
+| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/SchedFlow_0.1.0_x64-setup.exe` | 2.31 MB（2026-09-17 第十五轮 15:51 重打，含 K15–K53 全部修复） |
+| 便携版 zip（解压即用） | `dist-portable/SchedFlow_0.1.0_x64_portable.zip`（内含 `schedflow.exe` + `使用说明.txt`） | 2.79 MB（2026-09-17 第十五轮 15:51，`scripts/build-portable.ps1` 一键产出） |
+| 免安装主程序 | `src-tauri/target/release/schedflow.exe` | 5.91 MB（2026-09-17 第十五轮 15:51 生产模式重建，含全部修复） |
 
 版本：应用 0.1.0 ｜ Tauri 2.11.5（bundler 2.9.4）｜ 目标平台 Windows x64（测试环境 Windows 11 Pro，WebView2 149）。修复轮未升版本号，安装包同名覆盖。
 
-> ✅ **安装包与便携版已更新（2026-08-28 第十一轮 10:31）**：`SchedFlow_0.1.0_x64-setup.exe` 与 `dist-portable/SchedFlow_0.1.0_x64_portable.zip` 按 5.2 配方重建，已含 K15–K43 全部修复（含第十一轮提醒持久化/未读跨窗口同步/气泡左侧锚定）。重打命令见 5.2 便携版脚本。
+> ✅ **安装包与便携版已更新（2026-09-17 第十五轮 15:51）**：`SchedFlow_0.1.0_x64-setup.exe` 与 `dist-portable/SchedFlow_0.1.0_x64_portable.zip` 按 5.2 配方重建（`powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\Users\cpic\Desktop\TODO\schedflow\scripts\build-portable.ps1'`），已含 K15–K53 全部修复（含第十五轮待办编辑器残留/多待办编辑串号、悬浮球停靠隐藏态缩窗）。**构建前必须先退出正在运行的 schedflow.exe**（会锁住 `target\release\schedflow.exe`）。
 
 ### 2.2 源码树（定稿）
 
@@ -159,6 +162,12 @@ schedflow/
 | K45 | 🟡 | **日程/待办完成后，其未读提醒仍计入"未读"红点**：`set_event_completed`/`set_todo_completed` 只改 completed 标记，从未触碰 notifications 表 → 事项已完成但角标/未读列表仍显示未读 | ✅ 已修（2026-09-01 第十二轮）：两个完成命令的 `completed=true` 分支新增 `UPDATE notifications SET read=1 WHERE entity_type='event'/'todo' AND entity_id=?1 AND read=0`，随后照常广播 `data-changed`——完成即清该事项全部未读提醒（含重复日程其余发生次），角标/未读列表跨窗口同步清零 |
 | K46 | 🟡 | **从悬浮球窗口创建日程/待办后，悬浮球窗口不自动更新**：`data-changed` 处理器里 `reloadAll()` 与 `refreshToday()` 并发执行——`refreshToday` 先 `loadEvents`（同范围命中缓存跳过拉取）就读 `useDataStore.getState().events`，而 `reloadAll` 的 `listEventsByRange` 可能尚未返回/`set` → 读到旧快照，今日列表不更新 | ✅ 已修（2026-09-01 第十二轮）：处理器改为**顺序执行**——先 `await reloadAll()`（重拉本周日程并 `set({events})`），再 `await refreshToday()` 从已更新的 store 读取；`finally` 里 `loadUnread()`。消除了创建/修改后悬浮球面板今日日程不刷新的竞态 |
 | K47 | 🟡 | **每周起始日设为"周日"后重启失效**：`weekStart` 若以字符串（`"7"`）读回，rc-segmented 用**严格相等**比对 `segmentedOption.value === rawValue` 导致选中态丢失；且 `{...DEFAULTS, ...raw}` 合并不校验类型，脏值会一路传导 | ✅ 已修（2026-09-01 第十二轮）：双重健壮化——① `settingsStore.load()` 归一化 `weekStart`（`Number()` 强转 + 校验 1..7，非法回退默认 1，兼容历史字符串脏数据）；② 设置页 Segmented 选项改用**字符串值**（`"1"`/`"7"`）+ `onChange` 回写 `Number(v)`（严格相等恒命中、写库恒为数字）；③ `MonthView`/`ScheduleView`/`FloatApp` 调用处 `Number()` 兜底。已核实写库/读回路径无重置（仅 upsert、重启读回 7），根因在类型一致性 |
+| K48 | 🟡 | **悬浮球停靠隐藏态露出过少、几乎看不见也难抓取**：`state==="ball" && docked && !hovered` 时球绝大部分被推出窗口，只露 `SLIVER=8` 物理 px 一条细边 | ✅ 已修（2026-09-03 第十三轮）：`FloatApp.tsx` 用 `DOCK_PEEK=Math.round(0.37×ballSize)`（CSS px，随 floatSize 48–88 等比联动）取代 `SLIVER` 的三个使用点——露出弓形矢高 d≈0.735r 时面积 `Aseg=r²·acos((r−d)/r) − (r−d)·√(2rd−d²)=πr²/3`（≈整球 1/3）；`computeDockGeo` 四分支（右/左/上/下）与 `dockedSliverRect` 改按 `DOCK_PEEK` 在 CSS（逻辑）坐标内直接定位，**不再除以 scaleFactor**（露出比例只与球径挂钩、与 DPI 无关）；停靠窗口仍恒 `winSize×winSize` 不 resize、球仍 CSS 溢出由 OS 边缘裁切；悬停近场判定与 HOVER_TRIGGER/HOVER_KEEP 迟滞语义不变 |
+| K49 | 🟡 | **月视图选中四角格时蓝色内框外角被网格圆角裁出斜切/缺角**：`.sf-cal-grid` 带 `border-radius:12px` + `overflow:hidden`，但选中/拖入落点用 `box-shadow: inset 0 0 0 2px` 按格子**直角矩形**绘制——四角格（7×6=42 格的 0/6/35/41）外角被网格圆角裁切，蓝框出现"方形框被切出斜边"的不协调 | ✅ 已修（2026-09-03 第十三轮）：`global.css` 给四角格子补上与网格一致的 12px **外角** `border-radius`（`.sf-cal-grid > .sf-cal-cell:nth-child(1/7/36/42)`），inset box-shadow 沿元素自身 border-radius 描边 → 四角格选中（含 drag-over 同一 inset 规则）蓝框外角自动变圆角；非四角格蓝框保持直角不变、today-num/outside/weekend 底色纯叠加无差异；`.sf-cal-grid` 仅 MonthView 一处使用（Schedule MiniMonth 用内联 grid 不受影响） |
+| K50 | 🟡 | **K48 放大后的停靠露出仍偏大，观感上几乎要"滑出整球"，希望更收敛**：整球 1/3 的露出（DOCK_PEEK≈0.37×球径）在桌面边沿仍显醒目，改为只保留能提示"可拖出"的较小弓形 | ✅ 已修（2026-09-03 第十四轮）：`FloatApp.tsx` 的 `DOCK_PEEK` 系数 `0.37→0.30`（`Math.round(0.30×ballSize)`，注释同步改为 1/4 推导：令 `Aseg=πr²/4` 解得矢高 `d≈0.596r≈0.30×球径`）——实测各球径下露出弓形占整球 24.3%（48）–25.2%（60）≈1/4；几何仍全在 CSS（逻辑）坐标、不除 scaleFactor，停靠窗口/溢出裁切/悬停迟滞语义均未变 |
+| K51 | 🟡 | **新建待办时表单带出上一条待办的内容**：`TodoEditorModal` 的 `initialValues={initial}` 只在 Form **首次挂载**时生效，而 `Form.useForm` 的实例（store）**跨 Modal 关闭持久化**——rc-field-form 的 `setInitialValues(initialValues, !mountRef.current)` 第二次起带 `init=false`，重新挂载时用 `setValues({}, initialValues, this.store)` 把 **store 里的旧值覆盖在 initialValues 之上**；新建分支的 `initial` 又漏了 `categoryId/tagIds/reminderDate/reminderTime` 四个 key，残缺的 initialValues 更无法覆盖旧值 → 标题/分类/标签/提醒时间全部残留 | ✅ 已修（2026-09-17 第十五轮）：对齐 K23 已验证的 `EventEditorModal` 修法——① `initial` 改 `useMemo`（依赖 `[todo]`）；② 新建分支显式补全四个 `undefined` key（`setValues` 的合并语义下，缺 key 就等于"保留旧值"）；③ 新增 `useEffect`（依赖 `[editor?.open, initial]`，置于早退 `return null` **之前**：Hook 数量不能随 open 变化）在每次打开时 `form.resetFields()` + `form.setFieldsValue(initial)`——`resetFields` 清 store 残留、`setFieldsValue` 应用本次数据 |
+| K52 | 🟡 | **存在多条待办时，点任意一条"编辑"都只显示最近打开过的那条的内容**：与 K51 同根因——`TodoEditorModal` 常驻挂载（`App.tsx` 只渲染一次，从不卸载），弹窗内容完全由 Form store 决定；`initial` 变化时没有任何"重新灌入"的动作，store 里始终是上一次打开时的值 → 无论点哪条、`editorStore` 里 `todo` 换没换，界面都是同一条 | ✅ 已修（2026-09-17 第十五轮）：同 K51 的 `useEffect`——依赖 `[initial]` 使**每次 `todo` 变化都重新 resetFields + setFieldsValue**，弹窗内容严格跟随 `editorStore.todoEditor.todo`；已核对 `TodoList` 三处入口（行内编辑按钮 / 行双击 / 右键菜单）传入的均是行自身的 `t`，`editorStore.openTodoEditor({todo})` 数据链路本身无缺陷 |
+| K53 | 🔴 | **悬浮球停靠隐藏态四周透明区遮挡桌面点击**：Tauri 透明窗口在 Windows 上**没有逐像素点击穿透**——整个窗口矩形都参与 OS 命中测试（`WS_EX_LAYERED` 的透明像素仍吞鼠标消息，Tauri 上游 issue #13070 已明确拒绝内置支持、只建议切 `set_ignore_cursor_events`），而停靠隐藏态窗口恒为 `winSize×winSize`（`ballSize+2×WIN_PAD`，64 球时 88×88 CSS px、高 DPI 更大），只有约 19px 弓形可见 → 球周围约 88×88 的方形区域全部变成不可点击的死区。**注：K27 关于"根容器 `pointer-events:none` 可让透明区穿透给桌面"的假设不成立**，CSS 只能决定 WebView 内部谁响应，决定不了 OS 是否把该点算作本窗口 | ✅ 已修（2026-09-17 第十五轮）：**缩窗口本身**（纯前端，无 Rust 改动）——① 新增 `DockGeom` + `buildDockGeom(edge, m, cxPhys, cyPhys, …)`：隐藏态窗口沿停靠轴收成 `WIN_PAD+DOCK_PEEK`（64 球时 31 CSS px）、交叉轴仍整窗，贴边侧恒与屏幕边缘对齐（左/上取 `m.x/m.y`，右/下取 `m.x+m.w/m.y+m.h`）→ 窗口始终完整落在本监视器内，多屏不溢出；② 隐藏态球偏移右/下 `(WIN_PAD,WIN_PAD)`、左 `(DOCK_PEEK−ballSize,WIN_PAD)`、上 `(WIN_PAD,DOCK_PEEK−ballSize)`，弓形宽度仍恒为 `DOCK_PEEK`（露出比例与 DPI 无关的结论不变）；③ `applyDockProgress` + `animateDock`（`DOCK_ANIM_MS=170`，easeOutCubic）按同一 `t` 同步插值**窗口尺寸（LogicalSize）/ 位置（PhysicalPosition）/ 球偏移**，逐帧都是合法"半展开"几何 → 无闪烁；`global.css` 的 `.sf-float-ball.sf-docked` 移除 `left/top` transition（改由 rAF 驱动，否则球偏移滞后于窗口）；④ 悬停判定简化：删除 `HOVER_TRIGGER/HOVER_KEEP` 与 `dockedSliverRect`（窄条窗口本身即精确命中区），`onMouseMove` 进窗即展开、`onPointerLeave` 出窗才收起；⑤ `floatX/floatY` 持久化改存**展开态窗口位置**（`shownPos`），避免重启后用贴边窄条位置反推中心而漂移；细条角标内缩 6→1（31px 宽窗口内角标会被裁）。**遗留（同因，未在本轮处理）**：自由球态窗口仍是 `winSize×winSize`，球周围约 12px 的透明留白同样会吞点击——用户本轮只反馈停靠态，如需一并消除需再缩自由态窗口（代价：拖动/角标几何要跟着改） |
 
 ---
 

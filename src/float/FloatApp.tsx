@@ -27,18 +27,13 @@ const BUBBLE_H = 230;
 const MENU_W = 180;
 const MENU_H = 200;
 const GAP = 8;
-// 停靠：可见细条宽度（物理像素）
-const SLIVER = 8;
 // 停靠：距屏幕边缘多少物理像素内吸附
 const DOCK_THRESHOLD = 60;
 // 屏幕边缘工作区安全边距（物理像素，近似避开任务栏/不贴边）
 const EDGE_INSET = 8;
-// 停靠态悬停触发（CSS px）：命中区是整窗，但**展开**只应发生在鼠标贴近可见细条时——
-// 否则鼠标在整窗任意处（离屏幕边缘最远 ~88px）就会把球弹出来。
-// 这里按鼠标到细条的距离判定，带迟滞避免来回抖动：
-// 距细条 ≤ HOVER_TRIGGER 才展开；展开后距细条 > HOVER_KEEP 才收起（须覆盖展开球全部范围，稳定保持）。
-const HOVER_TRIGGER = 16;
-const HOVER_KEEP = 72;
+// 停靠展开/收起动画时长（ms）：窗口尺寸 + 位置 + 球偏移三者按同一进度插值，
+// 每个中间帧都是合法的"半展开"几何，因此不会出现闪烁/抖动。
+const DOCK_ANIM_MS = 170;
 
 type FloatState = "ball" | "bubble" | "panel" | "menu";
 type DockEdge = "left" | "right" | "top" | "bottom";
@@ -72,6 +67,62 @@ function clampPhys(x: number, y: number, wPhys: number, hPhys: number, m: Monito
   };
 }
 
+// 停靠几何：隐藏态窗口只保留"贴边露出弓形"的那一条窄边（沿停靠轴 WIN_PAD+DOCK_PEEK，
+// 交叉轴仍为整窗）。透明窗口在 Windows 上**没有逐像素穿透**——整个窗口矩形都会吞掉鼠标消息，
+// 所以消除"停靠时周围的透明遮挡"只能靠把窗口本身缩小，CSS 的 pointer-events 无能为力。
+// 由此：隐藏态输入命中区 = 窄条（≈31 CSS px），展开态 = 整窗；两者位置/尺寸/球偏移同步插值即可。
+interface DockGeom {
+  edge: DockEdge;
+  hiddenLogical: { w: number; h: number };
+  shownLogical: { w: number; h: number };
+  hiddenPos: { x: number; y: number };
+  shownPos: { x: number; y: number };
+  hiddenBall: { x: number; y: number };
+  shownBall: { x: number; y: number };
+}
+
+// (cxPhys, cyPhys) = 期望的"展开态窗口"中心（物理像素，只用到沿停靠轴的那个分量）。
+// 窗口贴边侧永远与屏幕边缘对齐（左/上取 m.x/m.y，右/下取 m.x+m.w/m.y+m.h），
+// 因此隐藏态与展开态都完整落在监视器内 —— 多屏下不会溢到相邻屏。
+function buildDockGeom(
+  edge: DockEdge,
+  m: MonitorInfo,
+  cxPhys: number,
+  cyPhys: number,
+  winSize: number,
+  ballSize: number,
+  peek: number,
+): DockGeom {
+  const winP = toPhys(winSize, m.scale);
+  const barP = toPhys(WIN_PAD + peek, m.scale);
+  const cx = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
+  const along = edge === "left" || edge === "right";
+  const hiddenLogical = along ? { w: WIN_PAD + peek, h: winSize } : { w: winSize, h: WIN_PAD + peek };
+  const shownLogical = { w: winSize, h: winSize };
+  let hiddenPos: { x: number; y: number };
+  let shownPos: { x: number; y: number };
+  if (along) {
+    const y = Math.round(cx(cyPhys - winP / 2, m.y, m.y + m.h - winP));
+    hiddenPos = { x: edge === "right" ? m.x + m.w - barP : m.x, y };
+    shownPos = { x: edge === "right" ? m.x + m.w - winP : m.x, y };
+  } else {
+    const x = Math.round(cx(cxPhys - winP / 2, m.x, m.x + m.w - winP));
+    hiddenPos = { x, y: edge === "bottom" ? m.y + m.h - barP : m.y };
+    shownPos = { x, y: edge === "bottom" ? m.y + m.h - winP : m.y };
+  }
+  // 隐藏态球偏移（CSS px）：球让大部分溢出窗口被裁掉，只剩宽 DOCK_PEEK 的弓形贴着屏幕边缘，
+  // 窗口内侧留 WIN_PAD 空隙。偏移全在逻辑坐标内，勿再除以 scaleFactor。
+  const hiddenBall =
+    edge === "right"
+      ? { x: WIN_PAD, y: WIN_PAD }
+      : edge === "left"
+        ? { x: peek - ballSize, y: WIN_PAD }
+        : edge === "top"
+          ? { x: WIN_PAD, y: peek - ballSize }
+          : { x: WIN_PAD, y: WIN_PAD };
+  return { edge, hiddenLogical, shownLogical, hiddenPos, shownPos, hiddenBall, shownBall: { x: WIN_PAD, y: WIN_PAD } };
+}
+
 const MENU_ITEMS = [
   { key: "open", label: "打开主窗口", icon: <CalendarOutlined /> },
   { type: "divider" as const },
@@ -102,6 +153,8 @@ export default function FloatApp() {
   // 停靠状态（正交于 FloatState：面板/菜单/气泡弹出时球临时解除停靠，但 dockedRef 记住以在收起时还原）
   const [docked, setDocked] = useState<DockEdge | null>(null);
   const [hovered, setHovered] = useState(false);
+  // 停靠展开进度（0 = 只露弓形，1 = 完全露出）；窗口几何由 rAF 同步驱动，这里只负责球偏移
+  const [dockT, setDockT] = useState(0);
 
   const dragRef = useRef<{
     sx: number;
@@ -125,8 +178,11 @@ export default function FloatApp() {
   const singleClickTimer = useRef<number | null>(null);
   // 停靠边持久记忆（面板/菜单/气泡期间不清除，收起时据此还原停靠条）
   const dockedRef = useRef<DockEdge | null>(null);
-  // 停靠几何快照：{ edge, winPos(物理), ballRest(CSS) }，悬停/收起时复用
-  const dockGeoRef = useRef<{ edge: DockEdge; winPos: { x: number; y: number }; ballRest: { x: number; y: number } } | null>(null);
+  // 停靠几何快照（隐藏态/展开态的尺寸、位置、球偏移），悬停/收起/拖动时复用
+  const dockGeoRef = useRef<DockGeom | null>(null);
+  // 停靠展开进度 0→1：dockTRef 给事件回调/动画帧同步读取，dockT 驱动 React 重绘球偏移
+  const dockTRef = useRef(0);
+  const dockRaf = useRef<number | null>(null);
 
   const setDockedState = (d: DockEdge | null) => {
     dockedRef.current = d;
@@ -135,33 +191,17 @@ export default function FloatApp() {
 
   const ballSize = settings.floatSize ?? BALL_BASE;
   const winSize = ballSize + WIN_PAD * 2;
+  // 停靠隐藏态的露出宽度（CSS px）：球被屏幕边缘裁切后留在屏内的圆弓形，面积 ≈ 整球 1/4。
+  // 弓形面积 Aseg=r²·acos((r−d)/r) − (r−d)·√(2rd−d²)，令 Aseg=πr²/4 解得矢高 d≈0.596r≈0.30×球径，
+  // 故 DOCK_PEEK=round(0.30·ballSize)（随 floatSize 48–88 等比联动）。几何全在 CSS（逻辑）坐标内，
+  // 露出比例只与球径挂钩、与 DPI 无关——不要像旧 SLIVER 那样再除以 scaleFactor。
+  const DOCK_PEEK = Math.round(0.30 * ballSize);
 
-  // 停靠后可见细条在窗口内的矩形（CSS px），用于悬停近场判定。
-  // 细条 = 球被窗口边缘裁剪后露出的那一段：右/下停靠靠窗口右/下缘，左/上停靠靠左/上缘。
-  const dockedSliverRect = (): { x: number; y: number; w: number; h: number } | null => {
-    if (!docked || !dockGeoRef.current) return null;
-    const s = SLIVER / (scaleRef.current || 1);
-    const b = ballSize;
-    switch (docked) {
-      case "right": return { x: winSize - s, y: WIN_PAD, w: s, h: b };
-      case "left": return { x: 0, y: WIN_PAD, w: s, h: b };
-      case "top": return { x: WIN_PAD, y: 0, w: b, h: s };
-      case "bottom": return { x: WIN_PAD, y: winSize - s, w: b, h: s };
-    }
-  };
-
-  const computeDockGeo = (edge: DockEdge, winPos: { x: number; y: number }, m: MonitorInfo) => {
-    // 停靠态球的 CSS 偏移：让球大部分溢出窗口被裁剪，只露 SLIVER 物理像素细条
-    const ballRest: { x: number; y: number } =
-      edge === "right"
-        ? { x: winSize - SLIVER / m.scale, y: WIN_PAD }
-        : edge === "left"
-          ? { x: SLIVER / m.scale - ballSize, y: WIN_PAD }
-          : edge === "top"
-            ? { x: WIN_PAD, y: SLIVER / m.scale - ballSize }
-            : { x: WIN_PAD, y: winSize - SLIVER / m.scale };
-    return { edge, winPos, ballRest };
-  };
+  // 停靠态球在窗口内的 CSS 偏移（按展开进度 t 插值：0 = 贴边弓形，1 = 完全露出）
+  const dockBallAt = (geo: DockGeom, t: number) => ({
+    x: geo.hiddenBall.x + (geo.shownBall.x - geo.hiddenBall.x) * t,
+    y: geo.hiddenBall.y + (geo.shownBall.y - geo.hiddenBall.y) * t,
+  });
 
   // 初始位置：恢复上次记忆（含停靠态）。
   // 修复：历史版本可能在 floatX/Y 里留下屏幕外的坐标（单击停靠条误清停靠 + 窗口被挪出屏外），
@@ -174,30 +214,21 @@ export default function FloatApp() {
         const s = useSettingsStore.getState().settings;
         const dockSetting = s.floatDock as DockEdge | null | undefined;
         const winPhys = toPhys(winSize, m.scale);
-        const cx = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
-        await win.setSize(new LogicalSize(winSize, winSize));
         if (dockSetting) {
-          let winPos: { x: number; y: number };
-          if (dockSetting === "left" || dockSetting === "right") {
-            const cy = (s.floatY != null ? s.floatY : m.y + m.h - winPhys) + winPhys / 2;
-            winPos = {
-              x: dockSetting === "right" ? m.x + m.w - winPhys : m.x,
-              y: cx(cy - winPhys / 2, m.y, m.y + m.h - winPhys),
-            };
-          } else {
-            const cx2 = (s.floatX != null ? s.floatX : m.x + m.w - winPhys) + winPhys / 2;
-            winPos = {
-              x: cx(cx2 - winPhys / 2, m.x, m.x + m.w - winPhys),
-              y: dockSetting === "top" ? m.y : m.y + m.h - winPhys,
-            };
-          }
-          winPosRef.current = { x: winPos.x, y: winPos.y };
-          await win.setPosition(new PhysicalPosition(winPos.x, winPos.y));
-          setBallPos({ x: winPos.x, y: winPos.y });
-          dockGeoRef.current = computeDockGeo(dockSetting, winPos, m);
+          // 记忆里的 floatX/floatY 存的是"展开态窗口"位置（隐藏态是贴边窄条，用它推断中心会漂移）
+          const cx0 = (s.floatX != null ? s.floatX : m.x + m.w - winPhys) + winPhys / 2;
+          const cy0 = (s.floatY != null ? s.floatY : m.y + m.h - winPhys) + winPhys / 2;
+          const geo = buildDockGeom(dockSetting, m, cx0, cy0, winSize, ballSize, DOCK_PEEK);
+          dockGeoRef.current = geo;
           setDockedState(dockSetting);
           setHovered(false);
+          dockTRef.current = 0;
+          setDockT(0);
+          setBallPos(geo.hiddenPos);
+          await win.setSize(new LogicalSize(geo.hiddenLogical.w, geo.hiddenLogical.h));
+          await placeWindow(geo.hiddenPos.x, geo.hiddenPos.y);
         } else {
+          await win.setSize(new LogicalSize(winSize, winSize));
           const x = s.floatX != null ? s.floatX : m.x + m.w - toPhys(winSize, m.scale) - 16;
           const y = s.floatY != null ? s.floatY : m.y + m.h - toPhys(winSize, m.scale) - 120;
           const c = clampPhys(x, y, winPhys, winPhys, m);
@@ -231,21 +262,69 @@ export default function FloatApp() {
     }
   }, [winSize, ballPos, placeWindow]);
 
-  // 收起后回到"球"：停靠过则还原停靠条，否则回自由球
+  const cancelDockAnim = useCallback(() => {
+    if (dockRaf.current != null) {
+      window.cancelAnimationFrame(dockRaf.current);
+      dockRaf.current = null;
+    }
+  }, []);
+
+  // 把停靠窗口按展开进度 t 落位：尺寸走 LogicalSize（会乘 scaleFactor），位置走物理像素
+  const applyDockProgress = useCallback((geo: DockGeom, t: number) => {
+    const lw = Math.round(geo.hiddenLogical.w + (geo.shownLogical.w - geo.hiddenLogical.w) * t);
+    const lh = Math.round(geo.hiddenLogical.h + (geo.shownLogical.h - geo.hiddenLogical.h) * t);
+    const x = Math.round(geo.hiddenPos.x + (geo.shownPos.x - geo.hiddenPos.x) * t);
+    const y = Math.round(geo.hiddenPos.y + (geo.shownPos.y - geo.hiddenPos.y) * t);
+    winPosRef.current = { x, y };
+    win.setSize(new LogicalSize(lw, lh)).catch(() => {});
+    win.setPosition(new PhysicalPosition(x, y)).catch(() => {});
+  }, []);
+
+  // 停靠展开/收起动画：时间驱动 + easeOutCubic，窗口几何与球偏移用同一个 t，逐帧都是合法几何
+  const animateDock = useCallback(
+    (geo: DockGeom, to: 0 | 1) => {
+      cancelDockAnim();
+      const from = dockTRef.current;
+      if (from === to) return;
+      const t0 = performance.now();
+      const step = () => {
+        const p = Math.min(1, (performance.now() - t0) / DOCK_ANIM_MS);
+        const t = from + (to - from) * (1 - Math.pow(1 - p, 3));
+        dockTRef.current = t;
+        setDockT(t);
+        applyDockProgress(geo, t);
+        if (p < 1) dockRaf.current = window.requestAnimationFrame(step);
+        else {
+          dockRaf.current = null;
+          dockTRef.current = to;
+          setDockT(to);
+          applyDockProgress(geo, to);
+        }
+      };
+      dockRaf.current = window.requestAnimationFrame(step);
+    },
+    [applyDockProgress, cancelDockAnim],
+  );
+
+  // 收起后回到"球"：停靠过则还原为贴边弓形（窄条窗口），否则回自由球
   const restoreBallOrDock = useCallback(async () => {
     const geo = dockGeoRef.current;
     if (dockedRef.current && geo) {
       setHovered(false);
+      cancelDockAnim();
+      dockTRef.current = 0;
       try {
-        await win.setSize(new LogicalSize(winSize, winSize));
-        await placeWindow(geo.winPos.x, geo.winPos.y);
+        // 先缩窗再复位球偏移：反过来会在窗口还很大时把球画到贴边位置，闪一帧
+        await win.setSize(new LogicalSize(geo.hiddenLogical.w, geo.hiddenLogical.h));
+        await placeWindow(geo.hiddenPos.x, geo.hiddenPos.y);
       } catch {
         /* ignore */
       }
+      setDockT(0);
     } else {
       await setBallWindow();
     }
-  }, [setBallWindow, placeWindow, winSize]);
+  }, [cancelDockAnim, setBallWindow, placeWindow]);
 
   const refreshToday = useCallback(async () => {
     try {
@@ -338,43 +417,37 @@ export default function FloatApp() {
         const winPhys = toPhys(winSize, m.scale);
         const p = await win.outerPosition();
         const c = { x: p.x + winPhys / 2, y: p.y + winPhys / 2 };
-        const cx = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
-        let winPos: { x: number; y: number };
-        if (edge === "left" || edge === "right") {
-          // 沿垂直方向保持球的中心位置（夹持在屏内）
-          winPos = {
-            x: edge === "right" ? m.x + m.w - winPhys : m.x,
-            y: cx(c.y - winPhys / 2, m.y, m.y + m.h - winPhys),
-          };
-        } else {
-          winPos = {
-            x: cx(c.x - winPhys / 2, m.x, m.x + m.w - winPhys),
-            y: edge === "top" ? m.y : m.y + m.h - winPhys,
-          };
-        }
-        dockGeoRef.current = computeDockGeo(edge, winPos, m);
+        // 沿停靠轴保持球的中心位置（夹持在屏内）；buildDockGeom 负责贴边与钳制
+        const geo = buildDockGeom(edge, m, c.x, c.y, winSize, ballSize, DOCK_PEEK);
+        dockGeoRef.current = geo;
         setDockedState(edge);
         setHovered(false);
         scaleRef.current = m.scale;
-        await win.setSize(new LogicalSize(winSize, winSize));
-        await placeWindow(winPos.x, winPos.y);
+        cancelDockAnim();
+        dockTRef.current = 0;
+        setDockT(0);
+        await win.setSize(new LogicalSize(geo.hiddenLogical.w, geo.hiddenLogical.h));
+        await placeWindow(geo.hiddenPos.x, geo.hiddenPos.y);
         await api.setSetting("floatDock", edge);
       } catch {
         /* ignore */
       }
     },
-    [placeWindow, winSize],
+    [ballSize, cancelDockAnim, placeWindow, winSize, DOCK_PEEK],
   );
 
   // 临时解除停靠（面板/菜单/气泡用）：按球当前屏幕位置还原为自由球，dockedRef 保留以便收起时还原
   const undockFromDock = useCallback(async () => {
     try {
       const m = await monitorOf();
+      // 先停掉展开动画，再读真实窗口位置：半展开态下也能正确算出球当前屏幕位置
+      cancelDockAnim();
+      const geo = dockGeoRef.current;
       const p = await win.outerPosition();
-      const rest = dockGeoRef.current?.ballRest ?? { x: WIN_PAD, y: WIN_PAD };
-      const ballScreenX = p.x + toPhys(rest.x, m.scale);
-      const ballScreenY = p.y + toPhys(rest.y, m.scale);
-      // 左/上停靠时 rest 偏移为负，直接相减会把窗口挪出屏幕 → 钳制保证窗口完整落在监视器内
+      const ball = geo ? dockBallAt(geo, dockTRef.current) : { x: WIN_PAD, y: WIN_PAD };
+      const ballScreenX = p.x + toPhys(ball.x, m.scale);
+      const ballScreenY = p.y + toPhys(ball.y, m.scale);
+      // 左/上停靠时球偏移为负，直接相减会把窗口挪出屏幕 → 钳制保证窗口完整落在监视器内
       const winPhys = toPhys(winSize, m.scale);
       const c = clampPhys(
         ballScreenX - toPhys(WIN_PAD, m.scale),
@@ -389,7 +462,7 @@ export default function FloatApp() {
     } catch {
       /* ignore */
     }
-  }, [placeWindow, winSize]);
+  }, [cancelDockAnim, placeWindow, winSize]);
 
   // ---- 拖拽（手动 setPosition，带阈值区分点击）----
   // 不跟手的原因：e.screenX/Y 是 CSS 像素，而 setPosition 用物理像素；
@@ -405,7 +478,17 @@ export default function FloatApp() {
     if (e.button !== 0 || state !== "ball") return;
     e.preventDefault();
     didDrag.current = false;
-    // 按下时不解除停靠：单击细条应走 openPanel（临时解除，收起还原停靠条）。
+    // 停靠态按下：先把展开/收起动画落定到"完全展开"，否则拖动起点几何与动画互相打架（窗口边拖边被改尺寸）
+    if (dockedRef.current && dockGeoRef.current) {
+      const g = dockGeoRef.current;
+      cancelDockAnim();
+      dockTRef.current = 1;
+      setDockT(1);
+      winPosRef.current = { x: g.shownPos.x, y: g.shownPos.y };
+      win.setSize(new LogicalSize(g.shownLogical.w, g.shownLogical.h)).catch(() => {});
+      win.setPosition(new PhysicalPosition(g.shownPos.x, g.shownPos.y)).catch(() => {});
+    }
+    // 按下时不解除停靠：单击露出弓形应走 openPanel（临时解除，收起还原停靠条）。
     // 永久解除停靠只在 onPointerUp 判定为真正拖动（d.moving）后走自由球分支清停靠态。
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     // 用缓存的位置/缩放同步建立 dragRef：按下即跟手，不再等 outerPosition+currentMonitor 两次 IPC（起步不粘滞）
@@ -486,8 +569,11 @@ export default function FloatApp() {
         .filter((o) => o.d >= 0)
         .sort((a, b) => a.d - b.d);
       const best = dists[0];
+      let persist = { x: p.x, y: p.y };
       if (best && best.d <= DOCK_THRESHOLD) {
         await applyDock(best.edge);
+        // 持久化"展开态窗口"位置：隐藏态是贴边窄条，拿它当中心会让重启后的停靠位置漂移
+        persist = dockGeoRef.current?.shownPos ?? winPosRef.current;
       } else {
         // 拖离停靠条到空白处松手 = 永久解除停靠（单击不走到这里，只有真实拖动 d.moving=true）
         await placeWindow(p.x, p.y);
@@ -495,10 +581,9 @@ export default function FloatApp() {
         dockGeoRef.current = null;
         await api.setSetting("floatDock", null);
       }
-      const np = await win.outerPosition();
-      setBallPos({ x: np.x, y: np.y });
-      await api.setSetting("floatX", np.x);
-      await api.setSetting("floatY", np.y);
+      setBallPos(persist);
+      await api.setSetting("floatX", persist.x);
+      await api.setSetting("floatY", persist.y);
     } catch {
       /* ignore */
     }
@@ -624,6 +709,13 @@ export default function FloatApp() {
     stateRef.current = state;
   }, [state]);
 
+  // 停靠展开/收起：悬停状态驱动窗口几何 + 球偏移一起过渡（面板/菜单等状态不做停靠动画）
+  useEffect(() => {
+    const geo = dockGeoRef.current;
+    if (!geo || !docked || state !== "ball") return;
+    animateDock(geo, hovered ? 1 : 0);
+  }, [animateDock, docked, hovered, state]);
+
   const quickAdd = async (type: "todo" | "event") => {
     await api.showMain();
     await emitTo("main", "global-shortcut", type === "todo" ? "add_todo" : "add_event");
@@ -691,22 +783,20 @@ export default function FloatApp() {
     }
   };
 
-  // 球的 CSS 位置：菜单态用补偿偏移；停靠且未悬停用"细条"偏移，悬停用自然位
+  // 球的 CSS 位置：菜单态用补偿偏移；停靠态按展开进度插值（0=贴边弓形，1=完全露出）
   const ballCss =
     state === "menu"
       ? ballOffset
-      : state === "ball" && docked
-        ? hovered
-          ? { x: WIN_PAD, y: WIN_PAD }
-          : dockGeoRef.current?.ballRest ?? { x: WIN_PAD, y: WIN_PAD }
+      : state === "ball" && docked && dockGeoRef.current
+        ? dockBallAt(dockGeoRef.current, dockT)
         : { x: WIN_PAD, y: WIN_PAD };
-  // 停靠悬停命中区 = 整个停靠窗口：细条（贴边 ~8px）与展开球（窗口中部）相距约一个窗口宽，
-  // 命中区必须同时覆盖两者才能稳定保持悬停；窗口仅 ~88px，透明区参与悬停的代价可忽略。
-  // 命中区原点取 (0,0) → 球 div 的 left/top（窗口相对坐标）不再被命中区偏移错误平移。
-  const hitCss =
-    state === "ball" && docked
-      ? { x: 0, y: 0, w: winSize, h: winSize }
-      : { x: ballCss.x, y: ballCss.y, w: ballSize, h: ballSize };
+  // 停靠态命中区 = 整个（已被缩小的）窗口：隐藏态就是贴边窄条，鼠标进来即展开；
+  // 展开后窗口变大，鼠标仍在窗内 → 不会误触发 onPointerLeave，不存在抖动。
+  // 自由球态命中区 = 球本身（原点即球位，球 div 偏移相减后仍为窗口相对坐标）。
+  const dockedBall = state === "ball" && !!docked;
+  const hit: { x: number; y: number; style: React.CSSProperties } = dockedBall
+    ? { x: 0, y: 0, style: { left: 0, top: 0, right: 0, bottom: 0 } }
+    : { x: ballCss.x, y: ballCss.y, style: { left: ballCss.x, top: ballCss.y, width: ballSize, height: ballSize } };
 
   const badgeVisible = settings.floatShowBadge && unread > 0;
   // 停靠且未展开（细条态）：角标脱离球、相对窗口（此时窗口贴屏幕边缘）定位在屏幕内侧一角
@@ -734,43 +824,37 @@ export default function FloatApp() {
     return style;
   };
 
-  // 细条态角标的 CSS：按停靠边贴向窗口（屏幕）内侧一角 —— 右停靠贴右缘、底停靠贴下缘，其余贴左缘/上缘
+  // 细条态角标的 CSS：贴在弓形所在的窗口角 —— 右停靠贴右缘、底停靠贴下缘，其余贴左缘/上缘。
+  // 隐藏态窗口沿停靠轴只有 WIN_PAD+DOCK_PEEK（ballSize=64 时 31px），内缩必须压到 1px 否则角标被窗口裁掉。
   const sliverBadgeStyle = (): React.CSSProperties => {
-    const s: React.CSSProperties = { left: 6, top: 6, right: "auto", bottom: "auto" };
+    const s: React.CSSProperties = { left: 1, top: 1, right: "auto", bottom: "auto" };
     if (docked === "right") {
       s.left = "auto";
-      s.right = 6;
+      s.right = 1;
     } else if (docked === "bottom") {
       s.top = "auto";
-      s.bottom = 6;
+      s.bottom = 1;
     }
     return s;
   };
 
   return (
-    // 根容器不捕获指针：停靠窗口完全在屏内且比球窗大，透明区必须穿透给桌面
+    // 根容器不捕获指针：窗口内除球（及停靠窄条）以外的区域不响应点击。
+    // 注意 —— 这**不能**让桌面接管穿透点击：Windows 上透明窗口没有逐像素穿透，
+    // 整个窗口矩形都会吞掉鼠标消息，所以停靠态只能靠缩小窗口本身来减小遮挡（见 buildDockGeom）。
     <div className="w-screen h-screen select-none relative" style={{ background: "transparent", pointerEvents: "none" }}>
       {/* 悬浮球本体 */}
       {(state === "ball" || state === "menu") && (
         <div
           className="absolute"
-          style={{ left: hitCss.x, top: hitCss.y, width: hitCss.w, height: hitCss.h, pointerEvents: "auto" }}
-          onMouseMove={(e) => {
-            if (stateRef.current !== "ball" || !docked || dragRef.current) return;
-            const r = dockedSliverRect();
-            if (!r) return;
-            const dx = Math.max(r.x - e.clientX, 0, e.clientX - (r.x + r.w));
-            const dy = Math.max(r.y - e.clientY, 0, e.clientY - (r.y + r.h));
-            const d = Math.hypot(dx, dy);
-            // 迟滞：距细条 ≤16px 展开；展开后距细条 >72px 才收起（覆盖展开球全部范围）
-            if (hovered) {
-              if (d > HOVER_KEEP) setHovered(false);
-            } else if (d <= HOVER_TRIGGER) {
-              setHovered(true);
-            }
+          style={{ ...hit.style, pointerEvents: "auto" }}
+          onMouseMove={() => {
+            // 停靠态：鼠标进入（已被缩小的）停靠窗口即展开；离开整个窗口才收起（由 onPointerLeave 负责）
+            if (stateRef.current !== "ball" || !docked || dragRef.current || hovered) return;
+            setHovered(true);
           }}
           onPointerLeave={() => {
-            if (docked && !dragRef.current) setHovered(false);
+            if (docked && hovered && !dragRef.current) setHovered(false);
           }}
         >
           <div
@@ -779,8 +863,8 @@ export default function FloatApp() {
               position: "absolute",
               // 球的 left/top 相对命中区原点：命中区带偏移（自由球）时不叠加成双倍偏移，
               // 保证球的窗口相对坐标恒为 ballCss，右下角不再被正方形窗口边沿裁剪
-              left: ballCss.x - hitCss.x,
-              top: ballCss.y - hitCss.y,
+              left: ballCss.x - hit.x,
+              top: ballCss.y - hit.y,
               width: ballSize,
               height: ballSize,
               opacity: settings.floatOpacity ?? 1,

@@ -110,6 +110,23 @@ button:focus-visible {
   overflow: hidden;
 }
 
+/* 网格四角的格子补上与网格一致的外角圆角：选中/拖入落点的 inset box-shadow 沿元素自身
+   border-radius 描边，外角跟随圆角，避免方形蓝框被网格 overflow:hidden 的 12px 圆角裁出斜切/缺角。
+   MonthView 的 .sf-cal-grid 固定 7×6=42 个直系子格子（Schedule 的 MiniMonth 用内联 grid，不受影响）；
+   四角 = 索引 0/6/35/41（nth-child 1/7/36/42），非四角格子的选中蓝框保持直角不变。 */
+.sf-cal-grid > .sf-cal-cell:nth-child(1) {
+  border-top-left-radius: 12px;
+}
+.sf-cal-grid > .sf-cal-cell:nth-child(7) {
+  border-top-right-radius: 12px;
+}
+.sf-cal-grid > .sf-cal-cell:nth-child(36) {
+  border-bottom-left-radius: 12px;
+}
+.sf-cal-grid > .sf-cal-cell:nth-child(42) {
+  border-bottom-right-radius: 12px;
+}
+
 .sf-cal-cell {
   position: relative;
   background: var(--sf-bg-panel);
@@ -210,10 +227,10 @@ button:focus-visible {
   transform: scale(1.04);
 }
 
-/* 停靠态：悬停展开/收起时 left/top 平滑滑动（不改窗口尺寸，无 IPC 抖动） */
+/* 停靠态：left/top 由 rAF 逐帧驱动（要与窗口尺寸/位置同步），不能再挂 CSS transition，
+   否则球偏移会滞后于窗口几何，露出弓形和窗口边沿对不上。 */
 .sf-float-ball.sf-docked {
-  transition: left 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-    transform 0.2s ease, filter 0.2s ease;
+  transition: transform 0.2s ease, filter 0.2s ease;
 }
 
 /* 面板内的迷你锚点球：面板打开时悬浮球以锚点形态保留，点击收起 */
